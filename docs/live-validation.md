@@ -55,3 +55,6 @@
 ## 2026-09-04 Compose 真实 Embedding 演示
 
 在 Docker Compose API/Worker 进程中执行 `scripts/demo.ps1`，完成注册、登录、建库、上传 `docs/demo.md`、Kafka 异步处理、真实 `text-embedding-v4` 向量入库和同模型向量检索。脚本返回本次文档的三个正文片段及段落编号，任务成功并激活版本。数据库账本记录两次 Embedding 调用，实际 usage 对应的估算费用合计 **0.000061 CNY**，预算预留已全部结算；本次没有调用聊天模型。该演示证明 Compose 运行链路和协议闭环，不代表检索质量或性能评测。
+## 2026-09-04 Compose 真实问答演示
+
+在已验证的 Compose API/Worker 环境中执行 `scripts/demo.ps1 -Answer`，完成真实百炼 Embedding 检索与 `qwen3.8-flash` 同步问答。返回答案“员工需要联系知识库所有者申请访问权限。[C2]”，引用包含 `demo.md`、段落 2 和连续原文；服务端 usage 为 302 input、54 output、356 total。此次调用完成后预算账本 spent 为 0.0009199 CNY、held 为 0，未触及 20 元上限。该结果证明真实协议和引用闭环，不代表问答质量评测；SSE 真实联调仍待完成。

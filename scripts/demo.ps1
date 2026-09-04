@@ -1,6 +1,7 @@
 param(
     [string]$BaseUrl = 'http://localhost:8080',
     [switch]$UploadOnly,
+    [switch]$Answer,
     [int]$WaitSeconds = 180
 )
 $ErrorActionPreference = 'Stop'
@@ -33,4 +34,8 @@ if ($hits.Count -eq 0 -or -not ($hits | Where-Object { $_.documentId -eq $upload
     throw '检索没有返回当前演示文档的正文，不能判定演示成功'
 }
 $hits | Select-Object documentName, paragraphNumber, pageNumber, score, content
+if ($Answer) {
+    $answerResult = Invoke-RestMethod "$BaseUrl/api/knowledge-bases/$($base.id)/answers" -Method Post -Headers $headers -ContentType 'application/json' -Body '{"question":"如何申请知识库访问权限？","topK":3,"mode":"HYBRID","rerank":false}'
+    $answerResult | Select-Object answer, citations, usage, actualModel
+}
 Write-Output '上传到检索链路验证完成。账号与演示数据保留；密码和令牌不会输出。'
