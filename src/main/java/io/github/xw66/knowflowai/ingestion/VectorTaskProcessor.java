@@ -73,7 +73,8 @@ public class VectorTaskProcessor {
         });
         if (task == null) return;
         try {
-            var chunks = jdbc.sql("SELECT id, chunk_index, paragraph_number, page_number, content FROM document_chunk WHERE document_id = :id AND index_version = :version AND chunk_index > :cursor ORDER BY chunk_index LIMIT 16")
+            // 百炼 text-embedding-v4 的兼容接口每次最多接受 10 条文本。
+            var chunks = jdbc.sql("SELECT id, chunk_index, paragraph_number, page_number, content FROM document_chunk WHERE document_id = :id AND index_version = :version AND chunk_index > :cursor ORDER BY chunk_index LIMIT 10")
                     .param("id", task.documentId()).param("version", task.indexVersion()).param("cursor", task.vectorCursor()).query(Chunk.class).list();
             if (chunks.isEmpty()) throw new IllegalStateException("缺少待索引分块");
             var vectors = calls.embed(model,chunks.stream().map(Chunk::content).toList(),task.id());

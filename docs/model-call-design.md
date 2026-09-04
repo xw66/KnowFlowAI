@@ -6,6 +6,8 @@ Embedding 查询与 Worker 分批入库也写入同一账本：call_type=EMBEDDI
 
 两处调用共用 EmbeddingCalls，通过 Spring AI 的 embedForResponse 保留原生 usage 和模型名，向量内容不写入账本。已知 Embedding usage 的输出 Token 为 0；失败或缺少可确认 usage 时保留未知。模型返回后即记录调用完成；维度错误、Qdrant 写入失败或任务提交失败仍可能已发生模型费用，不将其删除或改为零。记账不可用时查询返回不可用、Worker 按既有任务重试处理，两处都不发送新的模型请求。
 
+Worker 每次最多读取并提交 10 个分块，满足当前百炼 text-embedding-v4 兼容接口上限；大文档按已有 cursor 继续下一批，全部完成后才激活版本。
+
 `call_type=CHAT` 表示回答，`REWRITE` 表示改写；同一消息可以分别产生改写和回答记录。未请求改写或没有有效历史时不产生改写记录。改写 HTTP 完成但内容不合法时仍记录 COMPLETED 和实际 usage，业务状态独立记录 FALLBACK；调用失败记 FAILED。改写开始记账失败时不发送改写请求，仍按原逻辑退回原问题。改写同步写入终态，失败保留 RUNNING，不自动重试。原有 128 输出 Token、3 秒模型超时和零重试配置不变。
 
 调用前通过独立事务插入 RUNNING；插入失败返回 503，不发送模型请求。业务事务回滚不撤销已经发生的调用记录。COMPLETED 表示模型调用完成，回答仍可能因引用校验失败而被拒绝，不能以调用状态替代消息状态。

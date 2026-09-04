@@ -140,11 +140,12 @@ class VectorTests {
                 for (int d = 0; d < responseDimensions; d++) vector.add(0.1 + d);
                 data.add(Map.of("object", "embedding", "index", i, "embedding", vector));
             }
-            byte[] body = JSON.writeValueAsBytes(responseStatus == 200
+            int status=count>10?400:responseStatus;
+            byte[] body = JSON.writeValueAsBytes(status == 200
                     ? Map.of("object", "list", "model", "test-embedding", "data", data, "usage", Map.of("prompt_tokens", count, "total_tokens", count))
                     : Map.of("error", Map.of("message", "test failure", "type", "server_error")));
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(responseStatus, body.length);
+            exchange.sendResponseHeaders(status, body.length);
             exchange.getResponseBody().write(body);
             exchange.close();
         });
@@ -932,7 +933,7 @@ class VectorTests {
         assertThat(documents.task(owner(task), task).stage()).isEqualTo("CHUNKED");
         assertThat(state(task)).isEqualTo("PENDING");
         assertThat(active(task)).isNull();
-        assertThat(count(task)).isEqualTo(16);
+        assertThat(count(task)).isEqualTo(10);
         processor.processNext();
         assertThat(redis.hasKey("knowflow:task:v1:" + task + ":3")).isFalse();
         assertThat(jdbc.sql("SELECT cache_version FROM document_task WHERE id=:id").param("id", task).query(Long.class).single()).isEqualTo(5);
@@ -941,7 +942,7 @@ class VectorTests {
         assertThat(active(task)).isEqualTo(1);
         assertThat(count(task)).isEqualTo(17);
         assertThat(requestedPath).isEqualTo("/v1/embeddings");
-        assertThat(jdbc.sql("SELECT total_tokens FROM model_call WHERE task_id=:id AND call_type='EMBEDDING' AND route='INDEX' ORDER BY id").param("id",task).query(Integer.class).list()).containsExactly(16,1);
+        assertThat(jdbc.sql("SELECT total_tokens FROM model_call WHERE task_id=:id AND call_type='EMBEDDING' AND route='INDEX' ORDER BY id").param("id",task).query(Integer.class).list()).containsExactly(10,7);
         jdbc.sql("UPDATE document_task SET status = 'PROCESSING', stage = 'INDEXING', vector_cursor = -1, lease_token = 'crashed', lease_until = TIMESTAMPADD(SECOND,-1,CURRENT_TIMESTAMP(6)) WHERE id = :id")
                 .param("id", task).update();
         processor.processNext(); processor.processNext();
