@@ -1,0 +1,130 @@
+{
+  "generatedAt": "2026-09-04T14:22:45.896Z",
+  "baseUrl": "http://127.0.0.1:18080",
+  "model": "LOCAL_PROTOCOL_FIXTURE",
+  "concurrencyLevels": [
+    1,
+    5,
+    10
+  ],
+  "results": [
+    {
+      "kind": "search",
+      "concurrency": 1,
+      "requests": 3,
+      "errors": 0,
+      "errorRate": 0,
+      "throughputPerSecond": 12.043331908205701,
+      "p50Ms": 21.65889999999945,
+      "p95Ms": 210.3171000000002,
+      "p99Ms": 210.3171000000002,
+      "meanMs": 82.99120000000009,
+      "wallTimeMs": 249.10050000000047
+    },
+    {
+      "kind": "sse",
+      "concurrency": 1,
+      "requests": 3,
+      "errors": 0,
+      "errorRate": 0,
+      "throughputPerSecond": 0.7666916045889253,
+      "p50Ms": 1104.0602,
+      "p95Ms": 1727.8913000000002,
+      "p99Ms": 1727.8913000000002,
+      "meanMs": 1304.2992000000002,
+      "wallTimeMs": 3912.9161999999997
+    },
+    {
+      "kind": "ingest",
+      "concurrency": 1,
+      "requests": 1,
+      "errors": 0,
+      "errorRate": 0,
+      "throughputPerSecond": 0.47491435869369647,
+      "p50Ms": 2105.605800000001,
+      "p95Ms": 2105.605800000001,
+      "p99Ms": 2105.605800000001,
+      "meanMs": 2105.605800000001,
+      "wallTimeMs": 2105.6428000000014
+    },
+    {
+      "kind": "search",
+      "concurrency": 5,
+      "requests": 15,
+      "errors": 0,
+      "errorRate": 0,
+      "throughputPerSecond": 176.2934651538338,
+      "p50Ms": 22.943900000000212,
+      "p95Ms": 43.39249999999993,
+      "p99Ms": 43.39249999999993,
+      "meanMs": 28.03543333333352,
+      "wallTimeMs": 85.08539999999994
+    },
+    {
+      "kind": "sse",
+      "concurrency": 5,
+      "requests": 15,
+      "errors": 7,
+      "errorRate": 0.4666666666666667,
+      "throughputPerSecond": 6.5845118585302735,
+      "p50Ms": 1085.5912000000008,
+      "p95Ms": 1131.2780999999995,
+      "p99Ms": 1131.2780999999995,
+      "meanMs": 611.1036066666668,
+      "wallTimeMs": 2278.073199999999
+    },
+    {
+      "kind": "ingest",
+      "concurrency": 5,
+      "requests": 5,
+      "errors": 0,
+      "errorRate": 0,
+      "throughputPerSecond": 0.8035661881719297,
+      "p50Ms": 4169.7405,
+      "p95Ms": 6221.461500000001,
+      "p99Ms": 6221.461500000001,
+      "meanMs": 4160.66174,
+      "wallTimeMs": 6222.262800000002
+    },
+    {
+      "kind": "search",
+      "concurrency": 10,
+      "requests": 30,
+      "errors": 0,
+      "errorRate": 0,
+      "throughputPerSecond": 260.75800613997893,
+      "p50Ms": 36.489300000001094,
+      "p95Ms": 48.48349999999846,
+      "p99Ms": 48.565300000002026,
+      "meanMs": 36.63820666666676,
+      "wallTimeMs": 115.04920000000129
+    },
+    {
+      "kind": "sse",
+      "concurrency": 10,
+      "requests": 30,
+      "errors": 24,
+      "errorRate": 0.8,
+      "throughputPerSecond": 24.794962192641627,
+      "p50Ms": 17.61409999999887,
+      "p95Ms": 1159.9249999999993,
+      "p99Ms": 1161.8457999999991,
+      "meanMs": 247.7094166666667,
+      "wallTimeMs": 1209.923200000001
+    },
+    {
+      "kind": "ingest",
+      "concurrency": 10,
+      "requests": 10,
+      "errors": 0,
+      "errorRate": 0,
+      "throughputPerSecond": 0.8755655442018538,
+      "p50Ms": 6214.3691,
+      "p95Ms": 11420.115600000001,
+      "p99Ms": 11420.115600000001,
+      "meanMs": 6748.94363,
+      "wallTimeMs": 11421.1895
+    }
+  ],
+  "limitation": "当前使用协议替身；结果仅验证本地协议和任务链路，不代表真实模型性能。"
+}
