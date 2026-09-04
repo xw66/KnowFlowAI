@@ -2,6 +2,7 @@ param(
     [string]$BaseUrl = 'http://127.0.0.1:18080',
     [string]$DatasetPath = 'evaluation/v1/dataset.json',
     [int]$WaitSeconds = 180,
+    [string]$OutputPath = 'target/retrieval-evaluation-v1.json',
     [switch]$EvaluateRerank
 )
 
@@ -87,7 +88,7 @@ try {
         [pscustomobject]@{ mode = $_.Name; queries = $_.Count; recallAt5 = ($_.Group.metrics.recallAt5 | Measure-Object -Average).Average; mrrAt5 = ($_.Group.metrics.mrrAt5 | Measure-Object -Average).Average; ndcgAt5 = ($_.Group.metrics.ndcgAt5 | Measure-Object -Average).Average; rerankApplied = @($_.Group | Where-Object rerankStatus -eq 'APPLIED').Count }
     })
     $report = [pscustomobject]@{ generatedAt = [DateTime]::UtcNow.ToString('o'); dataset = $DatasetPath; knowledgeBaseId = $base.id; documentCount = $dataset.documents.Count; queryCount = $dataset.queries.Count; rerankRequested = [bool]$EvaluateRerank; summary = $summary; results = $rows }
-    $output = Join-Path $PSScriptRoot '../target/retrieval-evaluation-v1.json'
+    $output = Join-Path $PSScriptRoot "../$OutputPath"
     $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $output -Encoding utf8
     $summary | Format-Table | Out-String | Write-Output
     Write-Output "原始结果已保存：$output"
