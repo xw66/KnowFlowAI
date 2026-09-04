@@ -109,6 +109,8 @@ class KnowFlowAiApplicationTests {
         assertThat(api.path("paths").has("/api/knowledge-bases/{id}/answers")).isTrue();
         assertThat(api.path("paths").has("/api/conversations")).isTrue();
         assertThat(api.path("paths").has("/api/conversations/{id}/messages")).isTrue();
+        assertThat(api.path("paths").path("/api/admin/reconcile/stale-tasks").path("post").path("summary").asText())
+                .contains("恢复过期任务租约");
         assertThat(schemas.at("/AnswerRequest/properties/conversationId/format").asText()).isEqualTo("int64");
         assertThat(schemas.at("/AnswerRequest/properties/rewrite/type").asText()).isEqualTo("boolean");
         assertThat(api.path("paths").path("/api/knowledge-bases/{id}/answers/stream")
