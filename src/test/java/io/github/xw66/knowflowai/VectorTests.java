@@ -33,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "app.bm25.enabled=true", "app.bm25.initial-delay=3600000",
         "app.chat.enabled=true", "app.chat.api-key=test-only", "app.chat.model=test-chat", "app.chat.timeout=PT20S",
         "app.chat.stream-deadline=PT8S",
+        "app.model-budget.enabled=false",
         "app.cache.enabled=true",
         "app.idempotency.enabled=true",
         "app.rate-limit.enabled=true", "app.rate-limit.search=10000", "app.rate-limit.answer=10000",
