@@ -66,6 +66,14 @@ public class ModelCallController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
     }
 
+    @GetMapping("/budget")
+    @io.swagger.v3.oas.annotations.Operation(summary="管理员查看模型预算")
+    public ResponseEntity<BudgetView> budget() {
+        var value=jdbc.sql("SELECT limit_cny,spent_cny,held_cny,halted FROM model_budget WHERE id=1")
+                .query(BudgetView.class).single();
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(value);
+    }
+
     public record CallView(long id,String invocationId,int attemptNumber,String callType,String route,boolean streaming,
             Long messageId,Long taskId,String requestedModel,String actualModel,String status,Integer inputTokens,Integer outputTokens,
             Integer totalTokens,boolean usageKnown,Long latencyMs,String errorType,LocalDateTime startedAt,LocalDateTime finishedAt,
@@ -74,4 +82,5 @@ public class ModelCallController {
     public record Summary(long attempts,long completed,long failed,long cancelled,long running,long knownUsageCalls,
             long unknownUsageCalls,Long knownInputTokens,Long knownOutputTokens,Long knownTotalTokens,BigDecimal averageLatencyMs,
             long estimatedCalls,long unknownCostCalls,BigDecimal estimatedCostCny) {}
+    public record BudgetView(BigDecimal limitCny,BigDecimal spentCny,BigDecimal heldCny,boolean halted) {}
 }

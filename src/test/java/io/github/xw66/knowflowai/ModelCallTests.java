@@ -1,6 +1,7 @@
 package io.github.xw66.knowflowai;
 
 import java.net.URI;
+import java.math.BigDecimal;
 import java.net.http.*;
 import java.time.Instant;
 import java.util.List;
@@ -33,7 +34,7 @@ class ModelCallTests {
     @Autowired PlatformTransactionManager manager;
     @Autowired JwtEncoder encoder;
     final ObjectMapper json=new ObjectMapper();
-    @BeforeEach void clear() { jdbc.sql("DELETE FROM model_call").update(); }
+    @BeforeEach void clear() { jdbc.sql("DELETE FROM model_call").update(); jdbc.sql("UPDATE model_budget SET limit_cny=20,spent_cny=0,held_cny=0,halted=FALSE WHERE id=1").update(); }
     long start() { return log.start(UUID.randomUUID().toString(),1,"PRIMARY",false,null,"test-model"); }
 
     @Test void ledgerSurvivesOuterRollbackAndTerminalCannotBeOverwritten() {
@@ -166,6 +167,25 @@ class ModelCallTests {
             log.finish(first,"FAILED",null,new ModelCallLog.Tokens(100,100,200),1,"LateError");
             assertThat(cost(first)).isEqualByComparingTo("0.0000035");
         } finally { jdbc.sql("DELETE FROM model_price WHERE version IN ('test-new-version','test-future-version')").update(); }
+    }
+
+    @Test void budgetReservesAndSettlesBeforeAllowingAnotherCall() {
+        var guarded=new ModelCallLog(jdbc,manager,true);
+        long id=guarded.start(UUID.randomUUID().toString(),1,"CHAT","PRIMARY",false,null,"qwen3.8-flash",null,BEIJING);
+        assertThat(jdbc.sql("SELECT held_cny FROM model_budget WHERE id=1").query(java.math.BigDecimal.class).single()).isGreaterThan(BigDecimal.ZERO);
+        guarded.finish(id,"COMPLETED","qwen3.8-flash",new ModelCallLog.Tokens(1000,500,1500),1,null);
+        assertThat(jdbc.sql("SELECT held_cny FROM model_budget WHERE id=1").query(java.math.BigDecimal.class).single()).isZero();
+        assertThat(jdbc.sql("SELECT spent_cny FROM model_budget WHERE id=1").query(java.math.BigDecimal.class).single()).isEqualByComparingTo("0.00215");
+        guarded.finish(id,"FAILED","qwen3.8-flash",new ModelCallLog.Tokens(1000,500,1500),1,"late");
+        assertThat(jdbc.sql("SELECT spent_cny FROM model_budget WHERE id=1").query(java.math.BigDecimal.class).single()).isEqualByComparingTo("0.00215");
+    }
+
+    @Test void budgetRejectsBeforeCreatingAttemptWhenLimitIsInsufficient() {
+        jdbc.sql("UPDATE model_budget SET limit_cny=0 WHERE id=1").update();
+        var guarded=new ModelCallLog(jdbc,manager,true);
+        assertThatThrownBy(() -> guarded.start(UUID.randomUUID().toString(),1,"CHAT","PRIMARY",false,null,"qwen3.8-flash",null,BEIJING))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call").query(Long.class).single()).isZero();
     }
 
     HttpResponse<String> get(String path,String token) throws Exception {
