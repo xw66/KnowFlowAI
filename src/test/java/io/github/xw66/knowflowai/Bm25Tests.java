@@ -41,6 +41,7 @@ import static org.assertj.core.api.Assertions.*;
         "app.rerank.enabled=false",
         "app.chat.enabled=false",
         "app.cache.enabled=false",
+        "app.idempotency.enabled=false",
         "app.rate-limit.enabled=false", "management.health.redis.enabled=false",
         "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
         "app.bm25.initial-delay=3600000", "app.outbox.initial-delay=3600000", "app.processing.initial-delay=3600000",

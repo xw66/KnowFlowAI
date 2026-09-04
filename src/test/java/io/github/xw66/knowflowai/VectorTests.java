@@ -34,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "app.chat.enabled=true", "app.chat.api-key=test-only", "app.chat.model=test-chat", "app.chat.timeout=PT20S",
         "app.chat.stream-deadline=PT8S",
         "app.cache.enabled=true",
+        "app.idempotency.enabled=true",
         "app.rate-limit.enabled=true", "app.rate-limit.search=10000", "app.rate-limit.answer=10000",
         "app.rerank.enabled=true", "app.rerank.api-key=test-only", "app.rerank.model=test-rerank", "app.rerank.timeout=PT2S",
         "spring.kafka.listener.auto-startup=false", "spring.kafka.admin.auto-create=false"})

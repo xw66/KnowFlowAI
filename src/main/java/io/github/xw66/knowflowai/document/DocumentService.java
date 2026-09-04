@@ -36,18 +36,25 @@ public class DocumentService {
     private final DocumentStorage storage;
     private final TransactionTemplate transaction;
     private final TaskCache taskCache;
+    private final RequestIdempotency idempotency;
 
     public DocumentService(JdbcClient jdbc, KnowledgeBaseService knowledge, DocumentStorage storage,
-            PlatformTransactionManager transactionManager, TaskCache taskCache) {
+            PlatformTransactionManager transactionManager, TaskCache taskCache, RequestIdempotency idempotency) {
         this.jdbc = jdbc;
         this.knowledge = knowledge;
         this.storage = storage;
         this.transaction = new TransactionTemplate(transactionManager);
         this.taskCache = taskCache;
+        this.idempotency = idempotency;
     }
 
     public UploadResponse upload(long userId, long knowledgeBaseId, String idempotencyKey, MultipartFile upload) {
         knowledge.requireEditAccess(userId, knowledgeBaseId);
+        return idempotency.execute("upload:" + knowledgeBaseId + ":" + userId + ":" + idempotencyKey,
+                () -> uploadOnce(userId, knowledgeBaseId, idempotencyKey, upload));
+    }
+
+    private UploadResponse uploadOnce(long userId, long knowledgeBaseId, String idempotencyKey, MultipartFile upload) {
         var file = storage.store(upload);
         var registered = new AtomicBoolean();
         try {
@@ -157,6 +164,12 @@ public class DocumentService {
     }
 
     public UploadResponse reindex(long userId, long baseId, long documentId, String key) {
+        knowledge.requireEditAccess(userId, baseId);
+        return idempotency.execute("reindex:" + baseId + ":" + documentId + ":" + userId + ":" + key,
+                () -> reindexOnce(userId, baseId, documentId, key));
+    }
+
+    private UploadResponse reindexOnce(long userId, long baseId, long documentId, String key) {
         return transaction.execute(status -> {
             knowledge.lockForEditing(userId, baseId);
             jdbc.sql("SELECT id FROM document WHERE id=:id AND knowledge_base_id=:base AND status<>'DELETED' FOR UPDATE")

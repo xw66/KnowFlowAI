@@ -4,7 +4,7 @@
 
 已实现：HTTP 健康检查、MySQL / Flyway 迁移、用户注册与登录、BCrypt 密码哈希、JWT 鉴权、系统 RBAC、知识库与成员权限、文件上传、文档任务与事务 Outbox、Kafka 可靠投递与 Worker 幂等接收、参数校验、唯一约束、ProblemDetail 错误响应及 JSON 结构化日志。
 
-已实现权限向量检索、BM25、Hybrid / RRF、可选 Rerank、同步与 SSE 证据问答、真实模型连通性验证、Swagger、文档管理及异步删除清理。已接入会话持久化、可选查询改写、模型超时及可选 Fallback、可选的 [知识库与任务状态缓存](docs/cache-design.md)，以及默认启用的 [原子接口限流](docs/rate-limit-design.md)。Redis 请求幂等和完整应用 Compose 尚待实施；完整进度见 [实施进度](docs/roadmap.md)。当前 Compose 包含 MySQL、Redis、Kafka 与 Qdrant。Worker 接收后任务为 PENDING / QUEUED；四种文件提取正文并分块后为 PENDING / CHUNKED；启用 Embedding 后继续向量入库。
+已实现权限向量检索、BM25、Hybrid / RRF、可选 Rerank、同步与 SSE 证据问答、真实模型连通性验证、Swagger、文档管理及异步删除清理。已接入会话持久化、可选查询改写、模型超时及可选 Fallback、可选的 [知识库与任务状态缓存](docs/cache-design.md)，以及默认启用的 [原子接口限流](docs/rate-limit-design.md) 和 [Redis 请求幂等协调](docs/idempotency-design.md)。调用统计与完整应用 Compose 尚待实施；完整进度见 [实施进度](docs/roadmap.md)。当前 Compose 包含 MySQL、Redis、Kafka 与 Qdrant。Worker 接收后任务为 PENDING / QUEUED；四种文件提取正文并分块后为 PENDING / CHUNKED；启用 Embedding 后继续向量入库。
 
 ## 环境与启动
 
@@ -170,7 +170,7 @@ Invoke-RestMethod "http://localhost:8080/api/knowledge-bases/$($kb.id)/members/$
 
 两者都设置 Cache-Control: no-store，不返回存储键、摘要或正文。非成员、跨库文档、不可用知识库和已删除文档返回 404；系统 ADMIN 不绕过成员权限。最新任务失败仍可在目录查看错误码。
 
-`POST /api/knowledge-bases/{id}/documents/{documentId}/reindex` 重新解析原文件，必须提供 Idempotency-Key，不需要请求体。只有 OWNER / EDITOR 可调用；最新任务必须已 SUCCEEDED 或 FAILED，否则返回 409。同文档、同用户、同幂等键重复调用返回原任务。成功返回 202，响应与上传相同，Location 指向新任务查询地址。
+`POST /api/knowledge-bases/{id}/documents/{documentId}/reindex` 重新解析原文件，必须提供 Idempotency-Key，不需要请求体。只有 OWNER / EDITOR 可调用；最新任务必须已 SUCCEEDED 或 FAILED，否则返回 409。同文档、同用户、同幂等键的请求完成后，重复调用返回原任务；请求仍在处理中时返回 409，稍后用原键重试。成功返回 202，响应与上传相同，Location 指向新任务查询地址。
 
 V8 为任务增加请求用户及重建幂等键。版本号递增、新任务和 Outbox 同事务提交，失败时整体回滚。已有激活版本时 document 保持 READY，新任务进度从 latestTaskStatus / latestTaskStage 查看；新任务失败不隐藏旧版本，仅在新版本全部向量写入成功后切换 active_index_version。该保证针对同一服务模型集合；变更模型或地址后，查询仍必须使用与目标激活集合一致的配置。原文件和历史分块暂时保留，不提供原文件替换接口。
 
@@ -194,7 +194,7 @@ V3 迁移新增 `document`、`document_task`、`outbox_event`。上传请求只�
 
 只有 OWNER / EDITOR 可以上传；VIEWER 返回 403，非成员（包括系统 ADMIN）返回 404。上传前先检查权限，文件落盘后进入数据库短事务，再取得知识库锁重新检查权限，防止上传期间撤权后仍提交任务。
 
-幂等键为 8–128 位字母、数字或 `. _ : -`，建议使用 UUID。作用域为「知识库 + 当前用户」：同键、同文件名、相同 SHA-256 返回原 documentId / taskId；同键不同内容或名称返回 409。不同用户或不同知识库可以独立使用同一键。重试时仍要求当前用户具备上传权限，不能凭幂等键绕过撤权。
+幂等键为 8–128 位字母、数字或 `. _ : -`，建议使用 UUID。作用域为「知识库 + 当前用户」：请求完成后，同键、同文件名、相同 SHA-256 返回原 documentId / taskId；同键不同内容或名称返回 409。同键请求仍在处理时也会返回 409，稍后使用原键重试即可。不同用户或不同知识库可以独立使用同一键。重试时仍要求当前用户具备上传权限，不能凭幂等键绕过撤权。
 
 PowerShell 7 示例，使用前面创建的 `$kb` 和登录返回的 `$login`：
 
@@ -368,7 +368,7 @@ DOCX 按正文顺序提取段落与表格单元格，空段落占用段落号但
 
 上传测试使用真实 HTTP multipart、真实 MySQL 与独立临时文件目录，覆盖四种文件、摘要与落盘字节一致性、并发和重复上传、幂等键冲突与作用域、权限和任务隔离、类型伪装、压缩炸弹、上传大小限制、存储故障以及 Outbox 写入失败时的数据库/文件回滚。
 
-消息测试覆盖 HTTP 上传到 Worker 接收、重复投递、过期租约接管、发布器并发抢占、暂停真实 broker 后的退避重试、非法消息转死信，以及数据库故障时不提交消费位点。文本处理覆盖分块落库、重复消息不重复处理、文件丢失与恢复、摘要篡改、崩溃租约接管及重试耗尽，并验证段落编号与 Unicode 分块。PDF / DOCX 测试使用库生成的真实文件，覆盖上传到分块入库、PDF 空页后的页码保留、DOCX 段落表格顺序，以及加密、损坏、无正文和 PDF 页数超限。向量测试进一步覆盖分批激活、稳定 ID 重放、模型错误与维度错误、Qdrant 暂停恢复、MySQL 提交失败后的安全重放。完整 `verify` 当前通过 190 个测试；这些结果不代表吞吐量或检索效果。
+消息测试覆盖 HTTP 上传到 Worker 接收、重复投递、过期租约接管、发布器并发抢占、暂停真实 broker 后的退避重试、非法消息转死信，以及数据库故障时不提交消费位点。文本处理覆盖分块落库、重复消息不重复处理、文件丢失与恢复、摘要篡改、崩溃租约接管及重试耗尽，并验证段落编号与 Unicode 分块。PDF / DOCX 测试使用库生成的真实文件，覆盖上传到分块入库、PDF 空页后的页码保留、DOCX 段落表格顺序，以及加密、损坏、无正文和 PDF 页数超限。向量测试进一步覆盖分批激活、稳定 ID 重放、模型错误与维度错误、Qdrant 暂停恢复、MySQL 提交失败后的安全重放。最新完整 `verify` 结果见 [实施进度](docs/roadmap.md)；这些结果不代表吞吐量或检索效果。
 
 ### 同步证据问答
 

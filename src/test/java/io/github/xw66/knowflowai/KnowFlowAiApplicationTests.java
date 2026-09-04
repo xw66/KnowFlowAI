@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", "app.cache.enabled=false", "app.rate-limit.enabled=false", "management.health.redis.enabled=false"})
+        properties = {"app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", "app.cache.enabled=false", "app.rate-limit.enabled=false", "app.idempotency.enabled=false", "management.health.redis.enabled=false"})
 @Import(KnowFlowAiApplicationTests.DatabaseConfiguration.class)
 @ActiveProfiles("test")
 class KnowFlowAiApplicationTests {

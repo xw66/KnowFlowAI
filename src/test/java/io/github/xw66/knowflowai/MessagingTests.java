@@ -48,6 +48,7 @@ import static org.awaitility.Awaitility.await;
         "app.rerank.enabled=false",
         "app.chat.enabled=false",
         "app.cache.enabled=true",
+        "app.idempotency.enabled=true",
         "app.rate-limit.enabled=false",
         "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
         "spring.kafka.producer.properties.delivery.timeout.ms=2000",

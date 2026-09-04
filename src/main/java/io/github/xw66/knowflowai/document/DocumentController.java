@@ -25,7 +25,7 @@ public class DocumentController {
     }
 
     @PostMapping(value = "/api/knowledge-bases/{id}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @io.swagger.v3.oas.annotations.Operation(summary = "上传文档并创建异步任务", description = "OWNER/EDITOR 可上传；同一文件重试时复用 Idempotency-Key。202 仅表示任务已创建。")
+    @io.swagger.v3.oas.annotations.Operation(summary = "上传文档并创建异步任务", description = "OWNER/EDITOR 可上传；同一文件重试时复用 Idempotency-Key。相同键正在处理中返回 409，稍后使用原键重试。202 仅表示任务已创建。")
     public ResponseEntity<DocumentService.UploadResponse> upload(@AuthenticationPrincipal Account account,
             @PathVariable @Positive long id,
             @RequestHeader("Idempotency-Key") @Pattern(regexp = "[A-Za-z0-9._:-]{8,128}", message = "幂等键须为 8–128 位字母、数字或 . _ : -") String key,
@@ -51,7 +51,7 @@ public class DocumentController {
     }
 
     @PostMapping("/api/knowledge-bases/{id}/documents/{documentId}/reindex")
-    @io.swagger.v3.oas.annotations.Operation(summary = "重新处理文档并创建新索引版本", description = "OWNER/EDITOR 可调用，仅在前一任务终止后允许。重复请求复用 Idempotency-Key。旧激活版本保留到新版本成功。")
+    @io.swagger.v3.oas.annotations.Operation(summary = "重新处理文档并创建新索引版本", description = "OWNER/EDITOR 可调用，仅在前一任务终止后允许。重复请求复用 Idempotency-Key；相同键正在处理中返回 409，稍后用原键重试。旧激活版本保留到新版本成功。")
     public ResponseEntity<DocumentService.UploadResponse> reindex(@AuthenticationPrincipal Account account,
             @PathVariable @Positive long id, @PathVariable @Positive long documentId,
             @RequestHeader("Idempotency-Key") @Pattern(regexp = "[A-Za-z0-9._:-]{8,128}") String key) {

@@ -41,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
         "app.cache.enabled=true",
+        "app.idempotency.enabled=true",
         "app.rate-limit.enabled=false",
         "app.document.max-file-size=64KB", "spring.servlet.multipart.max-request-size=128KB"})
 @Import({KnowFlowAiApplicationTests.DatabaseConfiguration.class, KnowledgeBaseTests.RedisConfiguration.class})
@@ -70,6 +71,8 @@ class DocumentTests {
     private org.springframework.transaction.PlatformTransactionManager transactionManager;
     @Autowired
     private org.testcontainers.containers.GenericContainer<?> redisContainer;
+    @Autowired
+    private io.github.xw66.knowflowai.document.RequestIdempotency idempotency;
 
     private Actor owner;
     private long baseId;
@@ -359,6 +362,10 @@ class DocumentTests {
 
     @Test
     void concurrentIdenticalUploadsCreateOneDocumentTaskAndFile() throws Exception {
+        concurrentUploads(false);
+    }
+
+    private void concurrentUploads(boolean requireBothAccepted) throws Exception {
         String key = UUID.randomUUID().toString();
         long before = fileCount();
         var barrier = new CyclicBarrier(2);
@@ -373,13 +380,186 @@ class DocumentTests {
             });
             var a = first.get(15, TimeUnit.SECONDS);
             var b = second.get(15, TimeUnit.SECONDS);
-            expect(a, 202);
-            expect(b, 202);
-            assertThat(a.body()).isEqualTo(b.body());
+            assertThat(a.statusCode()).isIn(202, 409);
+            assertThat(b.statusCode()).isIn(202, 409);
+            assertThat(List.of(a.statusCode(), b.statusCode())).contains(202);
+            if (requireBothAccepted) { expect(a, 202); expect(b, 202); }
+            var replay = upload(owner, baseId, key, "notes.txt", fixture("txt"));
+            expect(replay, 202);
+            if (a.statusCode() == 202) assertThat(a.body()).isEqualTo(replay.body());
+            if (b.statusCode() == 202) assertThat(b.body()).isEqualTo(replay.body());
+        }
+        assertThat(documentCount()).isEqualTo(1);
+        assertThat(fileCount()).isEqualTo(before + 1);
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM document_task t JOIN document d ON d.id=t.document_id WHERE d.knowledge_base_id=:base")
+                .param("base", baseId).query(Long.class).single()).isEqualTo(1);
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM outbox_event o JOIN document_task t ON t.id=o.task_id JOIN document d ON d.id=t.document_id WHERE d.knowledge_base_id=:base")
+                .param("base", baseId).query(Long.class).single()).isEqualTo(1);
+    }
+
+    @Test
+    void heldRequestRejectsUploadAndReindexBeforeCreatingAnything() throws Exception {
+        String key = UUID.randomUUID().toString();
+        String uploadScope = "upload:" + baseId + ":" + owner.id() + ":" + key;
+        redis.opsForValue().set(requestKey(uploadScope), "test-holder", Duration.ofSeconds(30));
+        long before = fileCount();
+        expect(upload(owner, baseId, key, "notes.txt", fixture("txt")), 409);
+        assertThat(fileCount()).isEqualTo(before);
+        assertThat(documentCount()).isZero();
+        redis.delete(requestKey(uploadScope));
+        var first = upload(owner, baseId, key, "notes.txt", fixture("txt"));
+        expect(first, 202);
+        assertThat(redis.hasKey(requestKey(uploadScope))).isFalse();
+        long document = number(first, "$.documentId");
+        jdbc.sql("UPDATE document_task SET status='FAILED',cache_version=cache_version+1 WHERE document_id=:id").param("id", document).update();
+        String reindexScope = "reindex:" + baseId + ":" + document + ":" + owner.id() + ":" + key;
+        redis.opsForValue().set(requestKey(reindexScope), "test-holder", Duration.ofSeconds(30));
+        expect(reindex(owner, document, key), 409);
+        assertThat(jdbc.sql("SELECT index_version FROM document WHERE id=:id").param("id", document).query(Integer.class).single()).isEqualTo(1);
+        redis.delete(requestKey(reindexScope));
+        var next = reindex(owner, document, key);
+        expect(next, 202);
+        assertThat(reindex(owner, document, key).body()).isEqualTo(next.body());
+    }
+
+    @Test
+    void redisFailureStillUsesDatabaseToDeduplicateConcurrentUploads() throws Exception {
+        redisContainer.execInContainer("redis-cli", "ACL", "SETUSER", "default", "-set");
+        try { concurrentUploads(true); }
+        finally { redisContainer.execInContainer("redis-cli", "ACL", "SETUSER", "default", "+set"); }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void concurrentReindexUsesDatabaseWhenRedisFails(boolean sameKey) throws Exception {
+        var initial = upload(owner, baseId, UUID.randomUUID().toString(), "reindex.txt", fixture("txt"));
+        expect(initial, 202);
+        long document = number(initial, "$.documentId");
+        jdbc.sql("UPDATE document_task SET status='FAILED',cache_version=cache_version+1 WHERE document_id=:id").param("id", document).update();
+        String firstKey = UUID.randomUUID().toString();
+        String secondKey = sameKey ? firstKey : UUID.randomUUID().toString();
+        var barrier = new CyclicBarrier(2);
+        redisContainer.execInContainer("redis-cli", "ACL", "SETUSER", "default", "-set");
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var first = executor.submit(() -> { barrier.await(5, TimeUnit.SECONDS); return reindex(owner, document, firstKey); });
+            var second = executor.submit(() -> { barrier.await(5, TimeUnit.SECONDS); return reindex(owner, document, secondKey); });
+            var a = first.get(10, TimeUnit.SECONDS);
+            var b = second.get(10, TimeUnit.SECONDS);
+            if (sameKey) {
+                expect(a, 202); expect(b, 202); assertThat(a.body()).isEqualTo(b.body());
+            } else {
+                assertThat(List.of(a.statusCode(), b.statusCode())).containsExactlyInAnyOrder(202, 409);
+            }
+        } finally {
+            redisContainer.execInContainer("redis-cli", "ACL", "SETUSER", "default", "+set");
+        }
+        assertThat(jdbc.sql("SELECT index_version FROM document WHERE id=:id").param("id", document).query(Integer.class).single()).isEqualTo(2);
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM document_task WHERE document_id=:id").param("id", document).query(Long.class).single()).isEqualTo(2);
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM outbox_event o JOIN document_task t ON t.id=o.task_id WHERE t.document_id=:id")
+                .param("id", document).query(Long.class).single()).isEqualTo(2);
+    }
+
+    @Test
+    void releaseFailureDoesNotChangeSuccessfulResultAndReplayWorksAfterExpiry() throws Exception {
+        String key = UUID.randomUUID().toString();
+        String scope = "upload:" + baseId + ":" + owner.id() + ":" + key;
+        HttpResponse<String> first;
+        redisContainer.execInContainer("redis-cli", "ACL", "SETUSER", "default", "-eval", "-evalsha");
+        try {
+            first = upload(owner, baseId, key, "notes.txt", fixture("txt"));
+            expect(first, 202);
+            assertThat(redis.getExpire(requestKey(scope))).isBetween(1L, 30L);
+            expect(upload(owner, baseId, key, "notes.txt", fixture("txt")), 409);
+        } finally {
+            redisContainer.execInContainer("redis-cli", "ACL", "SETUSER", "default", "+eval", "+evalsha");
+        }
+        expireRequest(scope);
+        var replay = upload(owner, baseId, key, "notes.txt", fixture("txt"));
+        expect(replay, 202);
+        assertThat(replay.body()).isEqualTo(first.body());
+        assertThat(documentCount()).isEqualTo(1);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void requestLockIsHeldUntilOuterTransactionCompletes(boolean rollback) {
+        String scope = "transaction:" + UUID.randomUUID();
+        new org.springframework.transaction.support.TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            assertThat(idempotency.execute(scope, () -> 42)).isEqualTo(42);
+            assertThat(redis.hasKey(requestKey(scope))).isTrue();
+            if (rollback) status.setRollbackOnly();
+        });
+        assertThat(redis.hasKey(requestKey(scope))).isFalse();
+    }
+
+    @Test
+    void expiredOwnerCannotReleaseNewOwnersLock() throws Exception {
+        String scope = "owners:" + UUID.randomUUID();
+        var firstEntered = new java.util.concurrent.CountDownLatch(1);
+        var firstExit = new java.util.concurrent.CountDownLatch(1);
+        var secondEntered = new java.util.concurrent.CountDownLatch(1);
+        var secondExit = new java.util.concurrent.CountDownLatch(1);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            try {
+                var first = executor.submit(() -> idempotency.execute(scope, () -> { firstEntered.countDown(); awaitGate(firstExit); return 1; }));
+                assertThat(firstEntered.await(5, TimeUnit.SECONDS)).isTrue();
+                expireRequest(scope);
+                var second = executor.submit(() -> idempotency.execute(scope, () -> { secondEntered.countDown(); awaitGate(secondExit); return 2; }));
+                assertThat(secondEntered.await(5, TimeUnit.SECONDS)).isTrue();
+                String currentToken = redis.opsForValue().get(requestKey(scope));
+                firstExit.countDown();
+                assertThat(first.get(5, TimeUnit.SECONDS)).isEqualTo(1);
+                assertThat(redis.opsForValue().get(requestKey(scope))).isEqualTo(currentToken).isNotNull();
+                secondExit.countDown();
+                assertThat(second.get(5, TimeUnit.SECONDS)).isEqualTo(2);
+                assertThat(redis.hasKey(requestKey(scope))).isFalse();
+            } finally { firstExit.countDown(); secondExit.countDown(); }
+        }
+    }
+
+    @Test
+    void uploadPastLeaseExpiryStillCreatesOnlyOneDatabaseTaskAndFile() throws Exception {
+        String key = UUID.randomUUID().toString();
+        String scope = "upload:" + baseId + ":" + owner.id() + ":" + key;
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var resume = new java.util.concurrent.CountDownLatch(1);
+        byte[] bytes = fixture("txt");
+        long before = fileCount();
+        var slow = new org.springframework.mock.web.MockMultipartFile("file", "notes.txt", "text/plain", bytes) {
+            @Override
+            public java.io.InputStream getInputStream() throws java.io.IOException {
+                entered.countDown(); awaitGate(resume); return super.getInputStream();
+            }
+        };
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            try {
+                var first = executor.submit(() -> documents.upload(owner.id(), baseId, key, slow));
+                assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+                expireRequest(scope);
+                var second = documents.upload(owner.id(), baseId, key,
+                        new org.springframework.mock.web.MockMultipartFile("file", "notes.txt", "text/plain", bytes));
+                resume.countDown();
+                assertThat(first.get(5, TimeUnit.SECONDS)).isEqualTo(second);
+            } finally { resume.countDown(); }
         }
         assertThat(documentCount()).isEqualTo(1);
         assertThat(fileCount()).isEqualTo(before + 1);
     }
+
+    private void expireRequest(String scope) {
+        redis.expire(requestKey(scope), Duration.ofMillis(1));
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(2)).until(() -> !Boolean.TRUE.equals(redis.hasKey(requestKey(scope))));
+    }
+
+    private static void awaitGate(java.util.concurrent.CountDownLatch gate) {
+        try {
+            if (!gate.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("测试等待超时");
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt(); throw new IllegalStateException(exception);
+        }
+    }
+
+    private static String requestKey(String scope) { return "knowflow:request:v1:" + scope; }
 
     @Test
     void permissionsApplyToUploadTaskReadsAndIdempotentRetries() throws Exception {
