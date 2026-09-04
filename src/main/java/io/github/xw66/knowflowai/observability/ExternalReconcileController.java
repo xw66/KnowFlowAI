@@ -61,6 +61,29 @@ public class ExternalReconcileController {
                 more?results.getLast().documentId():null,List.copyOf(results)));
     }
 
+    @GetMapping("/files")
+    @io.swagger.v3.oas.annotations.Operation(summary="分页扫描文档存储目录",description="管理员只读扫描配置的文档目录；只处理目录直属项，不递归其他目录，不删除文件。afterKey 是文件名游标，最多 100 项。UNAVAILABLE 表示目录读取失败，不能解释为孤立文件。")
+    public ResponseEntity<FilePage> files(@RequestParam(defaultValue="") String afterKey,
+            @RequestParam(defaultValue="50") @Min(1) @Max(100) int limit) {
+        final io.github.xw66.knowflowai.document.DocumentStorage.FilePage listed;
+        try { listed=storage.listFiles(afterKey,limit); }
+        catch (java.io.IOException error) {
+            return ResponseEntity.status(503).cacheControl(CacheControl.noStore())
+                    .body(new FilePage(Instant.now(),"UNAVAILABLE",null,List.of()));
+        }
+        var result=listed.files().stream().map(file -> {
+            var document=jdbc.sql("SELECT id,status FROM document WHERE storage_key=:key").param("key",file.key())
+                    .query(DocumentRef.class).optional();
+            String status = "SYMLINK".equals(file.storageStatus()) || "DIRECTORY_OR_SPECIAL".equals(file.storageStatus())
+                    || "UNREADABLE".equals(file.storageStatus()) ? file.storageStatus()
+                    : ".upload-".equals(file.key()) || file.key().startsWith(".upload-") ? "TEMPORARY"
+                    : document.isPresent() ? "REGISTERED" : "ORPHAN";
+            return new FileResult(file.key(),status,file.sizeBytes(),document.map(DocumentRef::id).orElse(null),document.map(DocumentRef::status).orElse(null));
+        }).toList();
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new FilePage(Instant.now(),"OK",
+                listed.more() ? result.getLast().key() : null,List.copyOf(result)));
+    }
+
     private Check checkFile(Snapshot doc) {
         try {
             String digest=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(storage.read(doc.storageKey())));
@@ -128,6 +151,9 @@ public class ExternalReconcileController {
     public record Check(String status,Integer expectedChunks,Integer observedChunks,Integer retainedOtherVersionPoints,List<Long> missingChunkIds) {}
     public record DocumentCheck(long documentId,String documentStatus,Integer activeVersion,String consistency,String database,Check file,Check qdrant,Check lucene) {}
     public record Page(Instant generatedAt,long knowledgeBaseId,Long nextAfterId,List<DocumentCheck> documents) {}
+    public record FilePage(Instant generatedAt,String storageStatus,String nextAfterKey,List<FileResult> files) {}
+    public record FileResult(String key,String status,Long sizeBytes,Long documentId,String documentStatus) {}
     private record Chunk(long id,int chunkIndex) {}
     private record Snapshot(long id,String status,int indexVersion,Integer activeIndexVersion,String vectorCollection,String storageKey,String sha256,Integer bm25Version,String instanceId,String bm25Status) {}
+    private record DocumentRef(long id,String status) {}
 }

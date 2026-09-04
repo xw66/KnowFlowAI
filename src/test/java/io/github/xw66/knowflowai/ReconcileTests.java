@@ -2,6 +2,8 @@ package io.github.xw66.knowflowai;
 
 import java.net.URI;
 import java.net.http.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -14,6 +16,9 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.*;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.*;
 
@@ -24,6 +29,10 @@ import static org.assertj.core.api.Assertions.*;
 @Import(KnowFlowAiApplicationTests.DatabaseConfiguration.class)
 @ActiveProfiles("test")
 class ReconcileTests {
+    @TempDir static Path storageDirectory;
+    @DynamicPropertySource static void storageProperties(DynamicPropertyRegistry registry) {
+        registry.add("app.document.storage-directory", () -> storageDirectory.toString());
+    }
     @LocalServerPort int port;
     @Autowired JdbcClient jdbc;
     @Autowired JwtEncoder encoder;
@@ -103,6 +112,30 @@ class ReconcileTests {
         assertThat(next.path("documents").size()).isEqualTo(1);
         assertThat(next.at("/documents/0/documentId").asLong()).isGreaterThan(doc);
         assertThat(next.path("nextAfterId").isNull()).isTrue();
+    }
+
+    @Test void fileScanClassifiesRegisteredTemporaryAndOrphanEntriesWithCursor() throws Exception {
+        long task=task("PARSING",0,0,false);
+        long document=jdbc.sql("SELECT document_id FROM document_task WHERE id=:id").param("id",task).query(Long.class).single();
+        String registered=jdbc.sql("SELECT storage_key FROM document WHERE id=:id").param("id",document).query(String.class).single();
+        Files.writeString(storageDirectory.resolve(registered),"registered");
+        Files.writeString(storageDirectory.resolve("orphan.txt"),"orphan");
+        Files.writeString(storageDirectory.resolve(".upload-crashed.part"),"partial");
+        String admin=token("ADMIN"), cursor="";
+        var statuses=new java.util.HashSet<String>();
+        for(int page=0;page<5;page++) {
+            var response=get("/files?limit=1&afterKey="+java.net.URLEncoder.encode(cursor,java.nio.charset.StandardCharsets.UTF_8),admin);
+            assertThat(response.statusCode()).isEqualTo(200);
+            var body=json.readTree(response.body());
+            assertThat(body.path("storageStatus").asText()).isEqualTo("OK");
+            var files=body.path("files");
+            if(files.isEmpty()) break;
+            statuses.add(files.get(0).path("status").asText());
+            if(body.path("nextAfterKey").isNull()) break;
+            cursor=body.path("nextAfterKey").asText();
+        }
+        assertThat(statuses).contains("REGISTERED","ORPHAN","TEMPORARY");
+        assertThat(get("/files?limit=101",admin).statusCode()).isEqualTo(400);
     }
     HttpResponse<String> get(String query,String token) throws Exception {
         var request=HttpRequest.newBuilder(URI.create("http://localhost:"+port+"/api/admin/reconcile/documents"+query)).GET();

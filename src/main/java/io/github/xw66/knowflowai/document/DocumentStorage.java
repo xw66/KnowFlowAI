@@ -15,6 +15,7 @@ import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import java.util.zip.ZipInputStream;
 
 import org.slf4j.LoggerFactory;
@@ -99,6 +100,26 @@ public class DocumentStorage {
         }
     }
 
+    public FilePage listFiles(String afterKey, int limit) throws IOException {
+        if (limit < 1 || limit > 100) throw new IllegalArgumentException("文件扫描页大小无效");
+        try (Stream<Path> paths = Files.list(directory)) {
+            var files = paths.filter(path -> path.getFileName().toString().compareTo(afterKey == null ? "" : afterKey) > 0)
+                    .sorted().limit(limit + 1).map(path -> {
+                        try {
+                            var attributes = Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes.class);
+                            String key = path.getFileName().toString();
+                            String status = Files.isSymbolicLink(path) ? "SYMLINK"
+                                    : !attributes.isRegularFile() ? "DIRECTORY_OR_SPECIAL"
+                                    : key.startsWith(".upload-") ? "TEMPORARY" : "CANDIDATE";
+                            return new FileEntry(key,status,attributes.isRegularFile() ? attributes.size() : null);
+                        } catch (IOException error) {
+                            return new FileEntry(path.getFileName().toString(),"UNREADABLE",null);
+                        }
+                    }).toList();
+            return new FilePage(files.size() > limit, files.subList(0, Math.min(limit, files.size())));
+        }
+    }
+
     public void deleteQuietly(String key) {
         var target = directory.resolve(key).normalize();
         if (!target.getParent().equals(directory)) {
@@ -176,4 +197,6 @@ public class DocumentStorage {
 
     public record StoredFile(String name, String key, String sha256, String mediaType, long size) {
     }
+    public record FileEntry(String key, String storageStatus, Long sizeBytes) {}
+    public record FilePage(boolean more, java.util.List<FileEntry> files) {}
 }
