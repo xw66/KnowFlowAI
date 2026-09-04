@@ -84,3 +84,5 @@ GitHub 同步：每个可运行增量通过完整回归后，提交并推送到�
 2026-09-04 外部对账增量：新增按知识库分页的原文件 SHA-256、Qdrant 点身份与 Lucene 已提交索引核验，并增加直属存储目录文件分类、指定集合孤立向量和集合登记扫描；保留并发变化、不可达和超上限状态。修复 Maven 普通测试继承本地备用模型配置的问题。完整 verify 260 项通过；生产入口 3 篇文档、2 页、11 项目录文件、46 项向量、集合登记及 Swagger 验收通过，无新增模型调用。文件扫描专项 6 项、真实 Qdrant 孤立向量和集合扫描专项 2 项通过，原始记录见 external-reconciliation.md。超上限游标与完整恢复演练仍待完成。
 
 2026-09-04 容器恢复演练：新增 `scripts/recovery-drill.ps1`，使用独立 Compose 项目和本地协议替身验证 Worker、Kafka、Redis、Qdrant 暂停/恢复。任务恢复、Redis 数据库回源、Qdrant 503 与恢复后检索均通过，结果见 `target/recovery-drill-result.json` 和 `recovery-drill.md`。该演练不包含真实模型调用，也不替代生产级故障演练。下一步为正式检索 / 问答评测数据集。
+
+2026-09-04 评测集增量：新增 `evaluation/v1/dataset.json`，包含 20 篇中文企业文档、50 条带相关文档标注的检索问题和 10 条带引用标注的问答案例，并通过数量校验。当前仅完成数据集和标注，尚未运行真实评测或生成质量指标；下一步改造脚本批量上传并保存 Vector、BM25、Hybrid、Hybrid + Rerank 的逐条结果。
