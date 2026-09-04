@@ -58,3 +58,7 @@
 ## 2026-09-04 Compose 真实问答演示
 
 在已验证的 Compose API/Worker 环境中执行 `scripts/demo.ps1 -Answer`，完成真实百炼 Embedding 检索与 `qwen3.8-flash` 同步问答。返回答案“员工需要联系知识库所有者申请访问权限。[C2]”，引用包含 `demo.md`、段落 2 和连续原文；服务端 usage 为 302 input、54 output、356 total。此次调用完成后预算账本 spent 为 0.0009199 CNY、held 为 0，未触及 20 元上限。该结果证明真实协议和引用闭环，不代表问答质量评测；SSE 真实联调仍待完成。
+
+## 2026-09-04 Compose 真实 SSE 演示
+
+在同一 Compose 环境执行 `scripts/demo.ps1 -Stream`，真实百炼流式接口返回并通过脚本校验 `metadata`、`citation`、`done` 事件。脚本没有把中间 delta 当作完成答案；本次结束后预算账本 spent 为 **0.0011864 CNY**、held 为 0，未触及 20 元上限。该验证覆盖真实流协议和引用事件，不代表 SSE 延迟或吞吐评测。
