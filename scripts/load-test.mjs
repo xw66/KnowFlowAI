@@ -3,7 +3,9 @@ import { performance } from 'node:perf_hooks'
 import process from 'node:process'
 
 const baseUrl = (process.env.KNOWFLOW_LOAD_BASE_URL || 'http://127.0.0.1:18080').replace(/\/$/, '')
-const concurrencyLevels = [1, 5, 10]
+const concurrencyLevels = (process.env.KNOWFLOW_LOAD_CONCURRENCY || '1,5,10').split(',').map(Number).filter(Number.isInteger)
+const selectedKinds = new Set((process.env.KNOWFLOW_LOAD_KINDS || 'search,sse,ingest').split(',').map(value => value.trim()).filter(Boolean))
+const modelLabel = process.env.KNOWFLOW_LOAD_MODEL || 'LOCAL_PROTOCOL_FIXTURE'
 
 async function request(path, options = {}) {
   const response = await fetch(`${baseUrl}/api${path}`, options)
@@ -91,11 +93,11 @@ function summarize(kind, count, concurrency, samples, elapsedMs) {
 const context = await setup()
 const results = []
 for (const concurrency of concurrencyLevels) {
-  results.push(await runRequests('search', concurrency * 3, concurrency, context))
-  results.push(await runRequests('sse', concurrency * 3, concurrency, context))
-  results.push(await runRequests('ingest', concurrency, concurrency, context))
+  if (selectedKinds.has('search')) results.push(await runRequests('search', concurrency * 3, concurrency, context))
+  if (selectedKinds.has('sse')) results.push(await runRequests('sse', concurrency * 3, concurrency, context))
+  if (selectedKinds.has('ingest')) results.push(await runRequests('ingest', concurrency, concurrency, context))
 }
 await mkdir('target', { recursive: true })
-const report = { generatedAt: new Date().toISOString(), baseUrl, model: 'LOCAL_PROTOCOL_FIXTURE', concurrencyLevels, results, limitation: '当前使用协议替身；结果仅验证本地协议和任务链路，不代表真实模型性能。' }
+const report = { generatedAt: new Date().toISOString(), baseUrl, model: modelLabel, concurrencyLevels, selectedKinds: [...selectedKinds], results, limitation: modelLabel === 'LOCAL_PROTOCOL_FIXTURE' ? '当前使用协议替身；结果仅验证本地协议和任务链路，不代表真实模型性能。' : '真实模型低并发基线；不代表高并发容量结论。' }
 await writeFile('target/load-test.json', JSON.stringify(report, null, 2))
 console.log(JSON.stringify(report, null, 2))

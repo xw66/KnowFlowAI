@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-09-04T14:26:29.725Z",
+  "baseUrl": "http://127.0.0.1:8080",
+  "model": "REAL_BAILIAN",
+  "concurrencyLevels": [
+    1
+  ],
+  "selectedKinds": [
+    "search",
+    "sse",
+    "ingest"
+  ],
+  "results": [
+    {
+      "kind": "search",
+      "concurrency": 1,
+      "requests": 3,
+      "errors": 0,
+      "errorRate": 0,
+      "throughputPerSecond": 9.823887174620578,
+      "p50Ms": 24.503899999999703,
+      "p95Ms": 260.5107000000007,
+      "p99Ms": 260.5107000000007,
+      "meanMs": 101.73476666666677,
+      "wallTimeMs": 305.3780999999999
+    },
+    {
+      "kind": "sse",
+      "concurrency": 1,
+      "requests": 3,
+      "errors": 0,
+      "errorRate": 0,
+      "throughputPerSecond": 0.4602616885335205,
+      "p50Ms": 923.8796000000002,
+      "p95Ms": 4689.302500000001,
+      "p99Ms": 4689.302500000001,
+      "meanMs": 2172.6681333333336,
+      "wallTimeMs": 6518.0311
+    },
+    {
+      "kind": "ingest",
+      "concurrency": 1,
+      "requests": 1,
+      "errors": 0,
+      "errorRate": 0,
+      "throughputPerSecond": 0.47198168069183827,
+      "p50Ms": 2118.6959000000006,
+      "p95Ms": 2118.6959000000006,
+      "p99Ms": 2118.6959000000006,
+      "meanMs": 2118.6959000000006,
+      "wallTimeMs": 2118.7263000000003
+    }
+  ],
+  "limitation": "真实模型低并发基线；不代表高并发容量结论。"
+}
