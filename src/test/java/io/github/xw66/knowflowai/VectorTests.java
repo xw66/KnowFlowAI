@@ -227,6 +227,8 @@ class VectorTests {
         assertThat(saved.retrievalQuery()).isEqualTo("报销由谁负责？");
         assertThat(saved.rewriteStatus()).isEqualTo("APPLIED");
         assertThat(jdbc.sql("SELECT rewrite_total_tokens FROM chat_message WHERE id=:id").param("id",saved.id()).query(Integer.class).single()).isEqualTo(30);
+        assertThat(jdbc.sql("SELECT total_tokens FROM model_call WHERE message_id=:id AND call_type='REWRITE' AND status='COMPLETED'").param("id",saved.id()).query(Integer.class).single()).isEqualTo(30);
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(()->assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call WHERE message_id=:id AND status='COMPLETED'").param("id",saved.id()).query(Long.class).single()).isEqualTo(2));
     }
 
     @Test
@@ -259,6 +261,8 @@ class VectorTests {
             var saved=conversations.messages(owner(task),conversation,0,50).getLast();
             assertThat(saved.retrievalQuery()).isEqualTo("该找谁");
             assertThat(saved.rewriteStatus()).isEqualTo("FALLBACK");
+            assertThat(jdbc.sql("SELECT status FROM model_call WHERE message_id=:id AND call_type='REWRITE'").param("id",saved.id()).query(String.class).single()).isEqualTo(kind.equals("ERROR")?"FAILED":"COMPLETED");
+            assertThat(jdbc.sql("SELECT usage_known FROM model_call WHERE message_id=:id AND call_type='REWRITE'").param("id",saved.id()).query(Boolean.class).single()).isEqualTo(!kind.equals("ERROR"));
             assertThat(rewriteCalls).isEqualTo(before+1);
             assertThat(chatCalls).isEqualTo(chats+1);
         } finally { rewriteStatus=200; rewriteOutput="{\"query\":\"报销由谁负责？\"}"; }
@@ -274,6 +278,7 @@ class VectorTests {
         assertThat(followup(task,conversation,"answers").statusCode()).isEqualTo(200);
         assertThat(rewriteCalls).isEqualTo(before);
         assertThat(conversations.messages(owner(task),conversation,0,50).getLast().rewriteStatus()).isEqualTo("NO_CONTEXT");
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call m JOIN chat_message c ON c.id=m.message_id WHERE c.conversation_id=:id AND m.call_type='REWRITE'").param("id",conversation).query(Long.class).single()).isZero();
     }
 
     @Test

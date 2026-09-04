@@ -27,14 +27,18 @@ public class ModelCallLog {
     }
 
     public long start(String invocation, int attempt, String route, boolean streaming, Long messageId, String model) {
+        return start(invocation,attempt,"CHAT",route,streaming,messageId,model);
+    }
+
+    public long start(String invocation, int attempt, String type, String route, boolean streaming, Long messageId, String model) {
         try {
             return transaction.execute(status -> {
                 var holder = new GeneratedKeyHolder();
                 jdbc.sql("""
-                        INSERT INTO model_call(invocation_id,attempt_number,route,streaming,message_id,requested_model)
-                        VALUES (:invocation,:attempt,:route,:streaming,:message,:model)
+                        INSERT INTO model_call(invocation_id,attempt_number,call_type,route,streaming,message_id,requested_model)
+                        VALUES (:invocation,:attempt,:type,:route,:streaming,:message,:model)
                         """).param("invocation", invocation).param("attempt", attempt).param("route", route)
-                        .param("streaming", streaming).param("message", messageId, Types.BIGINT).param("model", model)
+                        .param("type",type).param("streaming", streaming).param("message", messageId, Types.BIGINT).param("model", model)
                         .update(holder);
                 return Objects.requireNonNull(holder.getKey()).longValue();
             });

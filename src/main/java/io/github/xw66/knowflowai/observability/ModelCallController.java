@@ -28,7 +28,7 @@ public class ModelCallController {
     public ModelCallController(JdbcClient jdbc) { this.jdbc=jdbc; }
 
     @GetMapping
-    @io.swagger.v3.oas.annotations.Operation(summary="管理员查询模型调用尝试",description="当前覆盖聊天主备尝试；不包含提示词或回答。COMPLETED 表示调用完成，不代表引用校验通过。")
+    @io.swagger.v3.oas.annotations.Operation(summary="管理员查询模型调用尝试",description="当前覆盖聊天主备和查询改写；不包含提示词或回答。COMPLETED 表示调用完成，不代表引用或改写内容校验通过。")
     public ResponseEntity<List<CallView>> list(@RequestParam(defaultValue="0") @PositiveOrZero long afterId,
             @RequestParam(defaultValue="50") @Min(1) @Max(100) int limit) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(jdbc.sql("""

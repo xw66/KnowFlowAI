@@ -426,4 +426,4 @@ DOCX 按正文顺序提取段落与表格单元格，空段落占用段落号但
 
 管理员可通过 `GET /api/admin/model-calls` 分页查看聊天主备尝试，通过 `/api/admin/model-calls/summary` 查询最近 24 小时的次数、耗时和已知 Token。每次重试独立记录，流式累计 usage 不重复相加；缺失用量保持未知。调用完成不代表回答引用校验通过。
 
-当前仅覆盖聊天回答，尚不代表全部模型费用；Embedding、改写、Rerank 与价格预算控制继续分步接入。边界见 [调用记账设计](docs/model-call-design.md)，完整进度见 [实施进度](docs/roadmap.md)。
+当前覆盖聊天回答（CHAT）和查询改写（REWRITE），尚不代表全部模型费用；Embedding、Rerank 与价格预算控制继续分步接入。改写内容校验失败仍保留已经发生的调用和用量。边界见 [调用记账设计](docs/model-call-design.md)，完整进度见 [实施进度](docs/roadmap.md)。
