@@ -3,7 +3,6 @@ package io.github.xw66.knowflowai.chat;
 import java.time.Duration;
 import java.util.*;
 import java.util.regex.Pattern;
-import org.springframework.ai.chat.metadata.EmptyUsage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Value;
@@ -73,7 +72,7 @@ public class AnswerStreamService {
             Prompt input=answers.prompt(question,prepared.evidence(),SYSTEM);
             subscriptions.add(Mono.delay(deadline).subscribe(value->fail(new java.util.concurrent.TimeoutException())));
             subscriptions.add(Flux.interval(Duration.ofSeconds(1)).publishOn(Schedulers.boundedElastic(),1).subscribe(value->heartbeat()));
-            subscriptions.add(calls.stream(prepared.model(),input)
+            subscriptions.add(calls.stream(prepared.model(),input,turn.messageId())
                     .subscribeOn(Schedulers.boundedElastic()).publishOn(Schedulers.boundedElastic(),1)
                     .subscribe(this::chunk,this::fail,this::finish));
         }
@@ -81,7 +80,7 @@ public class AnswerStreamService {
             if(ended) return;
             if(response.hasToolCalls() || response.getResults().size()>1) throw new IllegalStateException("非法模型流");
             var nativeUsage=response.getMetadata().getUsage();
-            if(nativeUsage!=null && !(nativeUsage instanceof EmptyUsage) && nativeUsage.getNativeUsage()!=null)
+            if(ChatCalls.knownUsage(nativeUsage,true))
                 usage=new AnswerService.Usage(nativeUsage.getPromptTokens(),nativeUsage.getCompletionTokens(),nativeUsage.getTotalTokens());
             if(response.getMetadata().getModel()!=null) model=response.getMetadata().getModel();
             var result=response.getResult();

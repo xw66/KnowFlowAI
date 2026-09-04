@@ -1,0 +1,28 @@
+CREATE TABLE model_call (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    invocation_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    attempt_number INT NOT NULL,
+    call_type VARCHAR(24) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'CHAT',
+    route VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    streaming BOOLEAN NOT NULL,
+    message_id BIGINT NULL,
+    requested_model VARCHAR(255) NOT NULL,
+    actual_model VARCHAR(255),
+    status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'RUNNING',
+    input_tokens INT,
+    output_tokens INT,
+    total_tokens INT,
+    usage_known BOOLEAN NOT NULL DEFAULT FALSE,
+    latency_ms BIGINT,
+    error_type VARCHAR(128),
+    started_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    finished_at DATETIME(6),
+    CONSTRAINT uk_model_call_attempt UNIQUE (invocation_id, attempt_number),
+    CONSTRAINT fk_model_call_message FOREIGN KEY (message_id) REFERENCES chat_message(id) ON DELETE SET NULL,
+    CONSTRAINT ck_model_call_attempt CHECK (attempt_number > 0),
+    CONSTRAINT ck_model_call_status CHECK (status IN ('RUNNING','COMPLETED','FAILED','CANCELLED')),
+    CONSTRAINT ck_model_call_latency CHECK (latency_ms IS NULL OR latency_ms >= 0),
+    CONSTRAINT ck_model_call_tokens CHECK ((input_tokens IS NULL OR input_tokens >= 0)
+        AND (output_tokens IS NULL OR output_tokens >= 0) AND (total_tokens IS NULL OR total_tokens >= 0)),
+    INDEX idx_model_call_started (started_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

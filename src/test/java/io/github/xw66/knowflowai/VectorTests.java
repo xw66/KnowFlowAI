@@ -162,7 +162,7 @@ class VectorTests {
         var result=new java.util.LinkedHashMap<String,Object>();
         result.put("id","test-stream"); result.put("object","chat.completion.chunk"); result.put("created",1); result.put("model","test-chat");
         result.put("choices",java.util.List.of(choice));
-        if(finish!=null) result.put("usage",Map.of("prompt_tokens",20,"completion_tokens",10,"total_tokens",30));
+        if(finish!=null && chatUsage) result.put("usage",Map.of("prompt_tokens",20,"completion_tokens",10,"total_tokens",30));
         return "data: "+JSON.writeValueAsString(result)+"\n\n";
     }
     @Autowired JdbcClient jdbc;
@@ -227,6 +227,17 @@ class VectorTests {
         assertThat(saved.retrievalQuery()).isEqualTo("报销由谁负责？");
         assertThat(saved.rewriteStatus()).isEqualTo("APPLIED");
         assertThat(jdbc.sql("SELECT rewrite_total_tokens FROM chat_message WHERE id=:id").param("id",saved.id()).query(Integer.class).single()).isEqualTo(30);
+    }
+
+    @Test
+    void sseMissingUsageIsUnknownInMessageAndLedger() throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        chatUsage=false;
+        try {
+            var response=request(base(task),owner(task),"{\"question\":\"测试\"}","answers/stream");
+            assertThat(response.body()).contains("event:done").doesNotContain("event:error");
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(()->assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call m JOIN chat_message c ON c.id=m.message_id JOIN conversation v ON v.id=c.conversation_id WHERE v.knowledge_base_id=:base AND m.status='COMPLETED' AND NOT m.usage_known AND m.total_tokens IS NULL AND c.total_tokens IS NULL").param("base",base(task)).query(Long.class).single()).isEqualTo(1));
+        } finally { chatUsage=true; }
     }
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -342,6 +353,8 @@ class VectorTests {
         assertThat(messages.get(1).path("content").asText()).isEqualTo(JSON.readTree(response.body()).path("answer").asText());
         assertThat(messages.get(1).path("citations")).hasSize(1);
         assertThat(messages.get(1).at("/usage/totalTokens").asInt()).isEqualTo(30);
+        long messageId=Long.parseLong(response.headers().firstValue("X-Message-Id").orElseThrow());
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(()->assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call WHERE message_id=:message AND status='COMPLETED' AND total_tokens=30 AND NOT streaming").param("message",messageId).query(Long.class).single()).isEqualTo(1));
         long other=seed(1); processor.processNext();
         assertThat(history(conversation,owner(other)).statusCode()).isEqualTo(404);
         assertThat(request(base(other),owner(other),"{\"question\":\"测试\",\"conversationId\":"+conversation+"}","answers").statusCode()).isEqualTo(404);
@@ -443,6 +456,7 @@ class VectorTests {
         assertThat(chatRequest.path("max_tokens").asInt()).isEqualTo(512);
         assertThat(messageStatus(task)).isEqualTo("COMPLETED");
         assertThat(response.body()).contains("conversationId","messageId");
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(()->assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call m JOIN chat_message c ON c.id=m.message_id JOIN conversation v ON v.id=c.conversation_id WHERE v.knowledge_base_id=:base AND m.streaming AND m.status='COMPLETED' AND m.total_tokens=30").param("base",base(task)).query(Long.class).single()).isEqualTo(1));
         assertThat(redis.opsForValue().get("knowflow:rate:v1:ANSWER:" + owner(task))).isEqualTo("1");
     }
 

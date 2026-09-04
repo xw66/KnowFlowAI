@@ -68,7 +68,7 @@ public class AnswerService {
         ChatResponse response;
         try {
             // 原文只放在用户消息的 JSON 数据中，绝不拼接进系统角色或注册为工具。
-            response=calls.call(model,prompt(prepared.query().query(),evidence,SYSTEM));
+            response=calls.call(model,prompt(prepared.query().query(),evidence,SYSTEM),turn==null?null:turn.messageId());
         } catch (RuntimeException exception) {
             org.slf4j.LoggerFactory.getLogger(getClass()).atWarn().addKeyValue("exceptionType",exception.getClass().getSimpleName()).log("问答模型调用失败");
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"问答模型暂时不可用");

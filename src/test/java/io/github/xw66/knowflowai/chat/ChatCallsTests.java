@@ -16,6 +16,17 @@ import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.*;
 
 class ChatCallsTests {
+    static final org.testcontainers.mysql.MySQLContainer database=new org.testcontainers.mysql.MySQLContainer("mysql:8.4.8");
+    static org.springframework.jdbc.core.simple.JdbcClient jdbc;
+    static io.github.xw66.knowflowai.observability.ModelCallLog log;
+    @BeforeAll static void database() {
+        database.start();
+        var source=new org.springframework.jdbc.datasource.DriverManagerDataSource(database.getJdbcUrl(),database.getUsername(),database.getPassword());
+        org.flywaydb.core.Flyway.configure().dataSource(source).load().migrate();
+        jdbc=org.springframework.jdbc.core.simple.JdbcClient.create(source);
+        log=new io.github.xw66.knowflowai.observability.ModelCallLog(jdbc,new org.springframework.jdbc.datasource.DataSourceTransactionManager(source));
+    }
+    @AfterAll static void closeDatabase() { database.stop(); }
     final ObjectMapper json=new ObjectMapper();
     HttpServer server;
     ChatModel primary,backup;
@@ -23,7 +34,9 @@ class ChatCallsTests {
     volatile int primaryStatus=200,backupStatus=200;
     volatile String primaryMode="OK",backupMode="OK";
     volatile JsonNode backupRequest;
+    volatile boolean streamUsage;
     @BeforeEach void start() throws Exception {
+        jdbc.sql("DELETE FROM model_call").update();
         server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         server.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
         server.createContext("/",exchange-> {
@@ -60,17 +73,22 @@ class ChatCallsTests {
         primary=ChatConfiguration.create("test-only",url+"/primary","primary-model",512,Duration.ofSeconds(10),Duration.ofSeconds(1),Duration.ofSeconds(10));
         backup=ChatConfiguration.create("test-only",url+"/backup","backup-model",512,Duration.ofSeconds(10),Duration.ofSeconds(1),Duration.ofSeconds(10));
     }
-    @AfterEach void stop() { server.stop(0); }
+    @AfterEach void stop() {
+        server.stop(0);
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).until(()->jdbc.sql("SELECT COUNT(*) FROM model_call WHERE status='RUNNING'").query(Long.class).single()==0);
+    }
     private static void pause() { try { Thread.sleep(25); } catch(InterruptedException error) { Thread.currentThread().interrupt(); } }
     private String chunk(String model,String text,boolean stop) {
         var choice=new java.util.LinkedHashMap<String,Object>();
         choice.put("index",0); choice.put("delta",Map.of("content",text)); choice.put("finish_reason",stop?"stop":null);
-        return "data: "+json.writeValueAsString(Map.of("id","test","object","chat.completion.chunk","created",1,"model",model,"choices",List.of(choice)))+"\n\n";
+        var frame=new java.util.LinkedHashMap<String,Object>(Map.of("id","test","object","chat.completion.chunk","created",1,"model",model,"choices",List.of(choice)));
+        if(streamUsage) frame.put("usage",Map.of("prompt_tokens",5,"completion_tokens",2,"total_tokens",7));
+        return "data: "+json.writeValueAsString(frame)+"\n\n";
     }
     private ChatCalls calls(boolean fallback,int retries,Duration total) {
         var factory=new StaticListableBeanFactory();
         if(fallback) factory.addBean("backup",backup);
-        return new ChatCalls(factory.getBeanProvider(ChatModel.class),retries,Duration.ofMillis(500),Duration.ofMillis(300),total);
+        return new ChatCalls(factory.getBeanProvider(ChatModel.class),retries,Duration.ofMillis(500),Duration.ofMillis(300),total,log);
     }
     @Test void transientFailureUsesBoundedRetriesThenBackupWithItsOwnOptions() {
         primaryStatus=503;
@@ -82,6 +100,12 @@ class ChatCallsTests {
         assertThat(backupRequest.path("max_tokens").asInt()).isEqualTo(512);
         assertThat(backupRequest.path("enable_thinking").asBoolean(true)).isFalse();
         assertThat(backupRequest.at("/response_format/type").asText()).isEqualTo("json_object");
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(()-> {
+            assertThat(jdbc.sql("SELECT status FROM model_call ORDER BY id").query(String.class).list()).containsExactly("FAILED","FAILED","COMPLETED");
+            assertThat(jdbc.sql("SELECT COUNT(DISTINCT invocation_id) FROM model_call").query(Long.class).single()).isEqualTo(1);
+            assertThat(jdbc.sql("SELECT total_tokens FROM model_call WHERE status='COMPLETED'").query(Integer.class).single()).isEqualTo(7);
+            assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call WHERE status='FAILED' AND total_tokens IS NULL AND NOT usage_known").query(Long.class).single()).isEqualTo(2);
+        });
     }
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(ints={400,401,403})
@@ -126,6 +150,29 @@ class ChatCallsTests {
         assertThat(first).hasSize(1);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(2)).until(()->closed.get()>0);
         assertThat(primaryCalls.get()).isEqualTo(1); assertThat(backupCalls.get()).isZero();
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(()->assertThat(jdbc.sql("SELECT status FROM model_call").query(String.class).single()).isEqualTo("CANCELLED"));
+    }
+    @Test void cumulativeStreamUsageIsNotAddedAcrossFrames() {
+        streamUsage=true;
+        usageCalls().stream(primary,new Prompt("test")).collectList().block(Duration.ofSeconds(6));
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(()-> {
+            assertThat(jdbc.sql("SELECT status FROM model_call").query(String.class).single()).isEqualTo("COMPLETED");
+            assertThat(jdbc.sql("SELECT total_tokens FROM model_call").query(Integer.class).single()).isEqualTo(7);
+        });
+    }
+    @Test void missingStreamUsageRemainsUnknown() {
+        usageCalls().stream(primary,new Prompt("test")).collectList().block(Duration.ofSeconds(6));
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(()->assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call WHERE status='COMPLETED' AND NOT usage_known AND total_tokens IS NULL").query(Long.class).single()).isEqualTo(1));
+    }
+    private ChatCalls usageCalls() {
+        return new ChatCalls(new StaticListableBeanFactory().getBeanProvider(ChatModel.class),0,Duration.ofSeconds(3),Duration.ofSeconds(3),Duration.ofSeconds(5),log);
+    }
+    @Test void unavailableLedgerPreventsProviderCalls() {
+        jdbc.sql("RENAME TABLE model_call TO model_call_unavailable").update();
+        try {
+            assertThatThrownBy(()->calls(true,2,Duration.ofSeconds(5)).call(primary,new Prompt("test"))).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+            assertThat(primaryCalls.get()).isZero(); assertThat(backupCalls.get()).isZero();
+        } finally { jdbc.sql("RENAME TABLE model_call_unavailable TO model_call").update(); }
     }
     @Test void configuredBackupDoesNotReplacePrimaryBeanAndIsUsedOnFailure() {
         primaryStatus=503;
@@ -133,6 +180,7 @@ class ChatCallsTests {
         new org.springframework.boot.test.context.runner.ApplicationContextRunner()
                 .withInitializer(context->context.getBeanFactory().setConversionService(org.springframework.boot.convert.ApplicationConversionService.getSharedInstance()))
                 .withUserConfiguration(ChatConfiguration.class,ChatCalls.class)
+                .withBean(io.github.xw66.knowflowai.observability.ModelCallLog.class,()->log)
                 .withPropertyValues("spring.profiles.active=api","app.chat.enabled=true","app.chat.api-key=test-only",
                         "app.chat.base-url="+url+"/primary","app.chat.model=primary-model","app.chat.max-tokens=512","app.chat.timeout=PT5S",
                         "app.chat.fallback.enabled=true","app.chat.fallback.model=backup-model","app.chat.fallback.base-url="+url+"/backup")
