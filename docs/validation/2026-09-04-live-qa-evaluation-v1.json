@@ -1,0 +1,361 @@
+{
+  "generatedAt": "2026-09-04T14:15:26.2470107Z",
+  "dataset": "evaluation/v1/dataset.json",
+  "knowledgeBaseId": 15,
+  "documentCount": 20,
+  "queryCount": 50,
+  "qaCount": 10,
+  "rerankRequested": false,
+  "summary": [],
+  "results": [],
+  "qaResults": [
+    {
+      "id": "qa01",
+      "question": "采购超过五万元还需要什么流程？",
+      "httpStatus": 200,
+      "answerStatus": "ANSWERED",
+      "citationCoverage": 1,
+      "citationsAllExpected": 1,
+      "citationCount": 1,
+      "expectedDocuments": [
+        "采购申请流程.md"
+      ],
+      "citedDocuments": [
+        "采购申请流程.md"
+      ],
+      "usage": {
+        "inputTokens": 386,
+        "outputTokens": 44,
+        "totalTokens": 430
+      },
+      "answer": "金额超过五万元时还需要财务复核[C1]",
+      "citations": {
+        "id": "C1",
+        "chunkId": 127,
+        "documentId": 54,
+        "documentName": "采购申请流程.md",
+        "pageNumber": null,
+        "paragraphNumber": 1,
+        "quote": "申请人提交后由直属主管审批，金额超过五万元时还需要财务复核。"
+      }
+    },
+    {
+      "id": "qa02",
+      "question": "报销缺发票能直接通过吗？",
+      "httpStatus": 200,
+      "answerStatus": "ANSWERED",
+      "citationCoverage": 1,
+      "citationsAllExpected": 1,
+      "citationCount": 1,
+      "expectedDocuments": [
+        "报销管理制度.md"
+      ],
+      "citedDocuments": [
+        "报销管理制度.md"
+      ],
+      "usage": {
+        "inputTokens": 371,
+        "outputTokens": 50,
+        "totalTokens": 421
+      },
+      "answer": "不能直接通过。缺少合规发票的申请会被退回补充[C2]。",
+      "citations": {
+        "id": "C2",
+        "chunkId": 130,
+        "documentId": 55,
+        "documentName": "报销管理制度.md",
+        "pageNumber": null,
+        "paragraphNumber": 2,
+        "quote": "单笔超过三千元的费用由部门负责人和财务共同审核，缺少合规发票的申请会被退回补充。"
+      }
+    },
+    {
+      "id": "qa03",
+      "question": "员工离职如何保护客户资料？",
+      "httpStatus": 200,
+      "answerStatus": "ANSWERED",
+      "citationCoverage": 1,
+      "citationsAllExpected": 0,
+      "citationCount": 5,
+      "expectedDocuments": [
+        "离职交接规范.md"
+      ],
+      "citedDocuments": [
+        "离职交接规范.md",
+        "离职交接规范.md",
+        "信息安全基线.md",
+        "客户数据分级.md",
+        "办公设备使用规范.md"
+      ],
+      "usage": {
+        "inputTokens": 392,
+        "outputTokens": 373,
+        "totalTokens": 765
+      },
+      "answer": "员工离职保护客户资料需执行以下措施：首先，涉及客户资料的岗位必须由信息安全人员核验数据删除和权限回收[C1]。其次，员工离职前应完成工作清单、账号移交、资产归还和未结事项说明，经直属主管确认交接完成后，由人力资源部办理离职手续[C2]。此外，日常管理中公司账号必须启用多因素认证，禁止共享账号或通过个人邮箱传输内部资料[C3]；客户数据中的严格机密信息（如身份证号、支付信息等）必须加密存储并限制最小权限访问[C4]；同时公司电脑应启用磁盘加密，外出办公使用公共网络时必须连接公司 VPN[C5]。",
+      "citations": [
+        {
+          "id": "C1",
+          "chunkId": 134,
+          "documentId": 57,
+          "documentName": "离职交接规范.md",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "quote": "涉及客户资料的岗位必须由信息安全人员核验数据删除和权限回收。"
+        },
+        {
+          "id": "C2",
+          "chunkId": 133,
+          "documentId": 57,
+          "documentName": "离职交接规范.md",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "quote": "员工离职前应完成工作清单、账号移交、资产归还和未结事项说明。直属主管确认交接完成后，人力资源部办理离职手续。"
+        },
+        {
+          "id": "C3",
+          "chunkId": 135,
+          "documentId": 58,
+          "documentName": "信息安全基线.md",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "quote": "公司账号必须启用多因素认证，密码至少八个字符并定期更新。禁止共享账号、在公共设备保存凭据或通过个人邮箱传输内部资料。"
+        },
+        {
+          "id": "C4",
+          "chunkId": 139,
+          "documentId": 60,
+          "documentName": "客户数据分级.md",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "quote": "客户数据分为公开、内部、机密和严格机密四级。身份证号、支付信息和未公开合同属于严格机密，必须加密存储并限制最小权限访问。"
+        },
+        {
+          "id": "C5",
+          "chunkId": 163,
+          "documentId": 72,
+          "documentName": "办公设备使用规范.md",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "quote": "公司电脑启用磁盘加密和自动锁屏，员工不得安装未经批准的软件。外出办公使用公共网络时必须连接公司 VPN。"
+        }
+      ]
+    },
+    {
+      "id": "qa04",
+      "question": "知识库编辑者能否管理成员？",
+      "httpStatus": 200,
+      "answerStatus": "INSUFFICIENT_EVIDENCE",
+      "citationCoverage": 0,
+      "citationsAllExpected": 0,
+      "citationCount": 0,
+      "expectedDocuments": [
+        "知识库访问权限.md"
+      ],
+      "citedDocuments": [],
+      "usage": {
+        "inputTokens": 370,
+        "outputTokens": 16,
+        "totalTokens": 386
+      },
+      "answer": "未找到足够证据，无法确认。",
+      "citations": null
+    },
+    {
+      "id": "qa05",
+      "question": "严格机密数据可以随便导出吗？",
+      "httpStatus": 200,
+      "answerStatus": "ANSWERED",
+      "citationCoverage": 1,
+      "citationsAllExpected": 1,
+      "citationCount": 2,
+      "expectedDocuments": [
+        "客户数据分级.md"
+      ],
+      "citedDocuments": [
+        "客户数据分级.md",
+        "客户数据分级.md"
+      ],
+      "usage": {
+        "inputTokens": 376,
+        "outputTokens": 144,
+        "totalTokens": 520
+      },
+      "answer": "不可以。严格机密数据（如身份证号、支付信息和未公开合同）必须加密存储并限制最小权限访问[C2]，且导出机密数据需要业务负责人批准，导出记录应保留至少两年[C1]。",
+      "citations": [
+        {
+          "id": "C1",
+          "chunkId": 140,
+          "documentId": 60,
+          "documentName": "客户数据分级.md",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "quote": "导出机密数据需要业务负责人批准，导出记录应保留至少两年。"
+        },
+        {
+          "id": "C2",
+          "chunkId": 139,
+          "documentId": 60,
+          "documentName": "客户数据分级.md",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "quote": "客户数据分为公开、内部、机密和严格机密四级。身份证号、支付信息和未公开合同属于严格机密，必须加密存储并限制最小权限访问。"
+        }
+      ]
+    },
+    {
+      "id": "qa06",
+      "question": "发布失败后应该如何处理？",
+      "httpStatus": 200,
+      "answerStatus": "INSUFFICIENT_EVIDENCE",
+      "citationCoverage": 0,
+      "citationsAllExpected": 0,
+      "citationCount": 0,
+      "expectedDocuments": [
+        "服务发布流程.md",
+        "故障响应手册.md"
+      ],
+      "citedDocuments": [],
+      "usage": {
+        "inputTokens": 378,
+        "outputTokens": 10,
+        "totalTokens": 388
+      },
+      "answer": "未找到足够证据，无法确认。",
+      "citations": null
+    },
+    {
+      "id": "qa07",
+      "question": "备份策略是否需要恢复验证？",
+      "httpStatus": 200,
+      "answerStatus": "ANSWERED",
+      "citationCoverage": 1,
+      "citationsAllExpected": 1,
+      "citationCount": 1,
+      "expectedDocuments": [
+        "数据备份策略.md"
+      ],
+      "citedDocuments": [
+        "数据备份策略.md"
+      ],
+      "usage": {
+        "inputTokens": 366,
+        "outputTokens": 85,
+        "totalTokens": 451
+      },
+      "answer": "是的，备份策略需要恢复验证。根据规定，恢复演练每季度至少进行一次，演练结果包括恢复耗时、数据丢失窗口和未解决问题[C3]。",
+      "citations": {
+        "id": "C3",
+        "chunkId": 146,
+        "documentId": 63,
+        "documentName": "数据备份策略.md",
+        "pageNumber": null,
+        "paragraphNumber": 2,
+        "quote": "恢复演练每季度至少进行一次，演练结果包括恢复耗时、数据丢失窗口和未解决问题。"
+      }
+    },
+    {
+      "id": "qa08",
+      "question": "接口错误可以返回堆栈吗？",
+      "httpStatus": 200,
+      "answerStatus": "ANSWERED",
+      "citationCoverage": 1,
+      "citationsAllExpected": 1,
+      "citationCount": 2,
+      "expectedDocuments": [
+        "API 设计规范.md"
+      ],
+      "citedDocuments": [
+        "API 设计规范.md",
+        "API 设计规范.md"
+      ],
+      "usage": {
+        "inputTokens": 374,
+        "outputTokens": 134,
+        "totalTokens": 508
+      },
+      "answer": "不可以。禁止把数据库异常堆栈直接返回客户端[C1]。错误响应应统一返回 requestId、错误类型和面向用户的说明[C2]。",
+      "citations": [
+        {
+          "id": "C1",
+          "chunkId": 148,
+          "documentId": 64,
+          "documentName": "API 设计规范.md",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "quote": "分页接口使用稳定排序和游标，禁止把数据库异常堆栈直接返回客户端。"
+        },
+        {
+          "id": "C2",
+          "chunkId": 147,
+          "documentId": 64,
+          "documentName": "API 设计规范.md",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "quote": "HTTP 接口使用资源导向路径和标准状态码，写操作必须支持幂等键。错误响应统一返回 requestId、错误类型和面向用户的说明。"
+        }
+      ]
+    },
+    {
+      "id": "qa09",
+      "question": "密码和令牌可以写进日志吗？",
+      "httpStatus": 200,
+      "answerStatus": "ANSWERED",
+      "citationCoverage": 1,
+      "citationsAllExpected": 1,
+      "citationCount": 1,
+      "expectedDocuments": [
+        "信息安全基线.md",
+        "日志与审计规范.md"
+      ],
+      "citedDocuments": [
+        "日志与审计规范.md"
+      ],
+      "usage": {
+        "inputTokens": 375,
+        "outputTokens": 77,
+        "totalTokens": 452
+      },
+      "answer": "不可以。密码、令牌和个人敏感信息不得写入日志[C1]。",
+      "citations": {
+        "id": "C1",
+        "chunkId": 149,
+        "documentId": 65,
+        "documentName": "日志与审计规范.md",
+        "pageNumber": null,
+        "paragraphNumber": 1,
+        "quote": "应用日志采用结构化 JSON，至少包含时间、级别、requestId、用户和操作名称。密码、令牌和个人敏感信息不得写入日志。"
+      }
+    },
+    {
+      "id": "qa10",
+      "question": "设备遗失后应该联系谁？",
+      "httpStatus": 200,
+      "answerStatus": "ANSWERED",
+      "citationCoverage": 1,
+      "citationsAllExpected": 1,
+      "citationCount": 1,
+      "expectedDocuments": [
+        "办公设备使用规范.md"
+      ],
+      "citedDocuments": [
+        "办公设备使用规范.md"
+      ],
+      "usage": {
+        "inputTokens": 374,
+        "outputTokens": 56,
+        "totalTokens": 430
+      },
+      "answer": "设备遗失后应联系IT部门，由其负责远程锁定和凭据吊销[C1]。",
+      "citations": {
+        "id": "C1",
+        "chunkId": 164,
+        "documentId": 72,
+        "documentName": "办公设备使用规范.md",
+        "pageNumber": null,
+        "paragraphNumber": 2,
+        "quote": "设备遗失应在发现后一小时内报告，IT 部门负责远程锁定和凭据吊销。"
+      }
+    }
+  ]
+}

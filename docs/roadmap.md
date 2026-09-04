@@ -90,3 +90,5 @@ GitHub 同步：每个可运行增量通过完整回归后，提交并推送到�
 2026-09-04 批量评测管线增量：新增 `scripts/evaluate-dataset.ps1`，在独立协议替身 Compose 中实际上传 20 篇文档并执行 50 条问题，生成 `target/retrieval-evaluation-v1.json`。Vector、BM25、Hybrid 三路均完成逐条记录和 Recall@5、MRR@5、nDCG@5 汇总；结果与限制见 `evaluation-v1.md`。替身固定向量不作为质量结论，真实 Embedding 和 APPLIED Rerank 仍待运行。
 
 2026-09-04 真实检索评测增量：使用同一 v1 数据集完成真实 `text-embedding-v4`、Vector、BM25、Hybrid 和 `gte-rerank-v2` 评测；四路各 50 条问题，Rerank 50/50 次为 `APPLIED`。真实结果和逐条原始响应见 `docs/validation/2026-09-04-live-retrieval-evaluation-v1*.json` 与 `evaluation-v1.md`。Embedding 290 次、Rerank 50 次，账本估算合计 0.0347337 元；当前样本中 Rerank 未提升指标，不作普遍收益声明。下一步为 10 条问答案例的引用质量评测与 HTTP/SSE/异步压测。
+
+2026-09-04 问答引用评测增量：使用真实聊天模型执行 v1 的 10 条问答案例，8 条有引用回答、2 条证据不足拒答；8 条均覆盖标注文档，7 条的全部引用属于标注文档。逐条答案、引用、usage 和失败状态见 `docs/validation/2026-09-04-live-qa-evaluation-v1.json`；结果不替代人工事实评审。下一步为 HTTP、SSE 和异步入库压测。
