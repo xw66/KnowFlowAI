@@ -11,6 +11,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.testcontainers.mysql.MySQLContainer;
@@ -32,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 @Import(KnowFlowAiApplicationTests.DatabaseConfiguration.class)
+@ActiveProfiles("test")
 class KnowFlowAiApplicationTests {
 
     @TestConfiguration(proxyBeanMethods = false)
@@ -54,6 +56,55 @@ class KnowFlowAiApplicationTests {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Test
+    void openApiMatchesAuthenticationAndMultipartContracts() throws Exception {
+        var response = get("/v3/api-docs");
+        assertThat(response.statusCode()).isEqualTo(200);
+        var api = objectMapper.readTree(response.body());
+        assertThat(api.path("openapi").asText()).startsWith("3.0.");
+        assertThat(api.path("components").path("securitySchemes").path("bearerAuth").path("scheme").asText()).isEqualTo("bearer");
+        assertThat(api.path("security").get(0).has("bearerAuth")).isTrue();
+        assertThat(api.path("paths").path("/api/auth/register").path("post").path("security")).isEmpty();
+        assertThat(api.path("paths").path("/api/auth/login").path("post").path("security")).isEmpty();
+        var upload = api.path("paths").path("/api/knowledge-bases/{id}/documents").path("post");
+        assertThat(upload.path("requestBody").path("content").has("multipart/form-data")).isTrue();
+        assertThat(upload.path("parameters")).anyMatch(parameter -> parameter.path("name").asText().equals("Idempotency-Key"));
+        var search = api.path("paths").path("/api/knowledge-bases/{id}/search").path("post");
+        assertThat(search.path("parameters")).noneMatch(parameter -> parameter.path("name").asText().equals("account"));
+        assertThat(api.path("paths").has("/actuator/health")).isFalse();
+        assertThat(get("/swagger-ui/index.html").statusCode()).isEqualTo(200);
+        assertThat(get("/swagger-ui/swagger-ui-bundle.js").statusCode()).isEqualTo(200);
+        assertThat(get("/api/knowledge-bases").statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void openApiPreservesValidatedParametersBinaryUploadAndResponseTypes() throws Exception {
+        var api=objectMapper.readTree(get("/v3/api-docs").body());
+        var parameters=api.path("paths").path("/api/knowledge-bases/{id}/documents").path("get").path("parameters");
+        assertThat(parameters).anySatisfy(parameter -> {
+            assertThat(parameter.path("name").asText()).isEqualTo("id");
+            assertThat(parameter.path("required").asBoolean()).isTrue();
+            assertThat(parameter.at("/schema/type").asText()).isEqualTo("integer");
+            assertThat(parameter.at("/schema/minimum").asInt(-1)).isZero();
+            assertThat(parameter.at("/schema/exclusiveMinimum").asBoolean()).isTrue();
+        }).anySatisfy(parameter -> {
+            assertThat(parameter.path("name").asText()).isEqualTo("limit");
+            assertThat(parameter.at("/schema/default").asInt()).isEqualTo(50);
+            assertThat(parameter.at("/schema/minimum").asInt()).isEqualTo(1);
+            assertThat(parameter.at("/schema/maximum").asInt()).isEqualTo(100);
+        });
+        var upload=api.path("paths").path("/api/knowledge-bases/{id}/documents").path("post");
+        var body=upload.path("requestBody").path("content").path("multipart/form-data").path("schema");
+        assertThat(body.path("required")).anyMatch(field -> field.asText().equals("file"));
+        assertThat(body.at("/properties/file/type").asText()).isEqualTo("string");
+        assertThat(body.at("/properties/file/format").asText()).isEqualTo("binary");
+        var schemas=api.at("/components/schemas");
+        assertThat(schemas.at("/SearchRequest/properties/query/maxLength").asInt()).isEqualTo(2000);
+        assertThat(schemas.at("/SearchRequest/properties/topK/maximum").asInt()).isEqualTo(20);
+        assertThat(schemas.at("/DocumentView/properties/id/format").asText()).isEqualTo("int64");
+        assertThat(schemas.at("/DocumentView/properties/createdAt/format").asText()).isEqualTo("date-time");
+    }
 
     @Test
     void healthReturnsUpWithoutInternalDetails() throws Exception {

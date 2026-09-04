@@ -18,11 +18,17 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import org.springframework.web.multipart.MultipartException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+    @ExceptionHandler(MultipartException.class)
+    ProblemDetail handleMalformedMultipart(MultipartException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "文件上传请求格式无效");
+    }
 
     @ExceptionHandler(AuthenticationException.class)
     ResponseEntity<ProblemDetail> handleAuthenticationFailure(AuthenticationException exception) {
