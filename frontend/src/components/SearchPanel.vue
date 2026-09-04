@@ -75,8 +75,8 @@ async function reindex(documentId: number) {
   try {
     const response = await fetch(`/api/knowledge-bases/${encodeURIComponent(form.knowledgeBaseId)}/documents/${documentId}/reindex`, { method: 'POST', headers: { Authorization: `Bearer ${props.token}`, 'Idempotency-Key': crypto.randomUUID() } })
     if (!response.ok) throw new Error('重新处理失败，请等待当前任务结束')
-    const task = await response.json(); taskStatus.value = `文档任务 ${task.taskId} 已重新创建`
-    await loadDocuments()
+    const task = await response.json(); taskStatus.value = `文档任务 ${task.taskId} 已重新创建，处理中…`
+    await waitForTask(task.taskId); taskStatus.value = '文档重新处理完成'; await loadDocuments()
   } catch (cause) { error.value = cause instanceof Error ? cause.message : '重新处理失败' }
   finally { documentAction.value = null }
 }
@@ -92,6 +92,17 @@ async function deleteDocument(documentId: number) {
 }
 
 function selectFile(event: Event) { selectedFile.value = (event.target as HTMLInputElement).files?.[0] }
+async function waitForTask(taskId: number) {
+  for (let attempt = 0; attempt < 120; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    const state = await fetch(`/api/document-tasks/${taskId}`, { headers: { Authorization: `Bearer ${props.token}` } })
+    if (!state.ok) throw new Error('任务状态读取失败')
+    const value = await state.json()
+    if (value.status === 'SUCCEEDED') return
+    if (value.status === 'FAILED') throw new Error(`文档处理失败：${value.errorCode ?? 'UNKNOWN'}`)
+  }
+  throw new Error('任务等待超时')
+}
 async function upload() {
   if (!selectedFile.value) return
   taskStatus.value='上传中…'; error.value=''
@@ -100,8 +111,7 @@ async function upload() {
     const response=await fetch(`/api/knowledge-bases/${encodeURIComponent(form.knowledgeBaseId)}/documents`,{method:'POST',headers:{Authorization:`Bearer ${props.token}`,'Idempotency-Key':crypto.randomUUID()},body:data})
     if(!response.ok) throw new Error('上传失败，请确认知识库权限')
     const task=await response.json(); taskStatus.value=`任务 ${task.taskId} 已创建，处理中…`
-    for(let attempt=0;attempt<120;attempt++) { await new Promise(resolve=>setTimeout(resolve,1500)); const state=await fetch(`/api/document-tasks/${task.taskId}`,{headers:{Authorization:`Bearer ${props.token}`}}); if(!state.ok) throw new Error('任务状态读取失败'); const value=await state.json(); if(value.status==='SUCCEEDED'){taskStatus.value='文档处理完成，可以检索';return} if(value.status==='FAILED') throw new Error(`文档处理失败：${value.errorCode ?? 'UNKNOWN'}`) }
-    throw new Error('任务等待超时')
+    await waitForTask(task.taskId); taskStatus.value='文档处理完成，可以检索'
   } catch(cause) { error.value=cause instanceof Error?cause.message:'上传失败'; taskStatus.value='' }
 }
 
