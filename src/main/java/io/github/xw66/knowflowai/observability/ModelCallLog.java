@@ -31,15 +31,19 @@ public class ModelCallLog {
     }
 
     public long start(String invocation, int attempt, String type, String route, boolean streaming, Long messageId, String model) {
+        return start(invocation,attempt,type,route,streaming,messageId,model,null);
+    }
+
+    public long start(String invocation, int attempt, String type, String route, boolean streaming, Long messageId, String model, Long taskId) {
         try {
             return transaction.execute(status -> {
                 var holder = new GeneratedKeyHolder();
                 jdbc.sql("""
-                        INSERT INTO model_call(invocation_id,attempt_number,call_type,route,streaming,message_id,requested_model)
-                        VALUES (:invocation,:attempt,:type,:route,:streaming,:message,:model)
+                        INSERT INTO model_call(invocation_id,attempt_number,call_type,route,streaming,message_id,requested_model,task_id)
+                        VALUES (:invocation,:attempt,:type,:route,:streaming,:message,:model,:task)
                         """).param("invocation", invocation).param("attempt", attempt).param("route", route)
                         .param("type",type).param("streaming", streaming).param("message", messageId, Types.BIGINT).param("model", model)
-                        .update(holder);
+                        .param("task",taskId,Types.BIGINT).update(holder);
                 return Objects.requireNonNull(holder.getKey()).longValue();
             });
         } catch (DataAccessException | TransactionException exception) {

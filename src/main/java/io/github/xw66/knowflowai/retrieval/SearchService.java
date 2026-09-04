@@ -26,14 +26,16 @@ public class SearchService {
     private final ObjectProvider<LuceneIndex> lexicalIndexes;
     private final ObjectProvider<RerankClient> rerankers;
     private final TransactionTemplate transaction;
+    private final io.github.xw66.knowflowai.ingestion.EmbeddingCalls calls;
 
     public SearchService(JdbcClient jdbc, KnowledgeBaseService bases, ObjectProvider<EmbeddingModel> models,
             ObjectProvider<QdrantIndex> indexes, ObjectProvider<LuceneIndex> lexicalIndexes,
-            ObjectProvider<RerankClient> rerankers, PlatformTransactionManager manager) {
+            ObjectProvider<RerankClient> rerankers, PlatformTransactionManager manager, io.github.xw66.knowflowai.ingestion.EmbeddingCalls calls) {
         this.jdbc = jdbc; this.bases = bases; this.models = models; this.indexes = indexes;
         this.lexicalIndexes=lexicalIndexes;
         this.rerankers=rerankers;
         this.transaction = new TransactionTemplate(manager);
+        this.calls=calls;
     }
 
     public List<Hit> search(long userId, long baseId, String query, int topK) {
@@ -104,7 +106,7 @@ public class SearchService {
     }
 
     private Selection vectorCandidates(EmbeddingModel model, QdrantIndex index, long baseId, String query) {
-        var points=index.search(model.embed(query),baseId,200).path("result").path("points");
+        var points=index.search(calls.embed(model,List.of(query),null).getFirst(),baseId,200).path("result").path("points");
         if (!points.isArray() || points.size()>200) throw new IllegalStateException("向量响应格式无效");
         var candidates=new ArrayList<Candidate>();
         for (JsonNode point : points) {

@@ -26,15 +26,17 @@ public class VectorTaskProcessor {
     private final TransactionTemplate transaction;
     private final int dimensions;
     private final TaskCache cache;
+    private final EmbeddingCalls calls;
 
     public VectorTaskProcessor(JdbcClient jdbc, EmbeddingModel model, QdrantIndex index,
-            PlatformTransactionManager manager, @Value("${app.embedding.dimensions}") int dimensions, TaskCache cache) {
+            PlatformTransactionManager manager, @Value("${app.embedding.dimensions}") int dimensions, TaskCache cache, EmbeddingCalls calls) {
         this.jdbc = jdbc;
         this.model = model;
         this.index = index;
         this.transaction = new TransactionTemplate(manager);
         this.dimensions = dimensions;
         this.cache = cache;
+        this.calls = calls;
     }
 
     @Scheduled(fixedDelayString = "${app.vector.poll-delay:1000}", initialDelayString = "${app.vector.initial-delay:1000}")
@@ -74,7 +76,7 @@ public class VectorTaskProcessor {
             var chunks = jdbc.sql("SELECT id, chunk_index, paragraph_number, page_number, content FROM document_chunk WHERE document_id = :id AND index_version = :version AND chunk_index > :cursor ORDER BY chunk_index LIMIT 16")
                     .param("id", task.documentId()).param("version", task.indexVersion()).param("cursor", task.vectorCursor()).query(Chunk.class).list();
             if (chunks.isEmpty()) throw new IllegalStateException("缺少待索引分块");
-            var vectors = model.embed(chunks.stream().map(Chunk::content).toList());
+            var vectors = calls.embed(model,chunks.stream().map(Chunk::content).toList(),task.id());
             if (vectors.size() != chunks.size()) throw new IllegalStateException("Embedding 数量不匹配");
             var points = new ArrayList<Map<String, Object>>();
             for (int i = 0; i < chunks.size(); i++) {

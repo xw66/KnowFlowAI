@@ -28,11 +28,11 @@ public class ModelCallController {
     public ModelCallController(JdbcClient jdbc) { this.jdbc=jdbc; }
 
     @GetMapping
-    @io.swagger.v3.oas.annotations.Operation(summary="管理员查询模型调用尝试",description="当前覆盖聊天主备和查询改写；不包含提示词或回答。COMPLETED 表示调用完成，不代表引用或改写内容校验通过。")
+    @io.swagger.v3.oas.annotations.Operation(summary="管理员查询模型调用尝试",description="当前覆盖聊天、查询改写和 Embedding；不包含提示词或回答。COMPLETED 表示调用完成，不代表索引写入、引用或改写校验通过。")
     public ResponseEntity<List<CallView>> list(@RequestParam(defaultValue="0") @PositiveOrZero long afterId,
             @RequestParam(defaultValue="50") @Min(1) @Max(100) int limit) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(jdbc.sql("""
-                SELECT id,invocation_id,attempt_number,call_type,route,streaming,message_id,requested_model,actual_model,
+                SELECT id,invocation_id,attempt_number,call_type,route,streaming,message_id,task_id,requested_model,actual_model,
                        status,input_tokens,output_tokens,total_tokens,usage_known,latency_ms,error_type,started_at,finished_at
                 FROM model_call WHERE id>:after ORDER BY id LIMIT :limit
                 """).param("after",afterId).param("limit",limit).query(CallView.class).list());
@@ -62,7 +62,7 @@ public class ModelCallController {
     }
 
     public record CallView(long id,String invocationId,int attemptNumber,String callType,String route,boolean streaming,
-            Long messageId,String requestedModel,String actualModel,String status,Integer inputTokens,Integer outputTokens,
+            Long messageId,Long taskId,String requestedModel,String actualModel,String status,Integer inputTokens,Integer outputTokens,
             Integer totalTokens,boolean usageKnown,Long latencyMs,String errorType,LocalDateTime startedAt,LocalDateTime finishedAt) {}
     public record Summary(long attempts,long completed,long failed,long cancelled,long running,long knownUsageCalls,
             long unknownUsageCalls,Long knownInputTokens,Long knownOutputTokens,Long knownTotalTokens,BigDecimal averageLatencyMs) {}

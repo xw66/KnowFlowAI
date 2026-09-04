@@ -61,6 +61,7 @@ class Bm25Tests {
     @Autowired DocumentService documents;
     @Autowired KnowledgeBaseService bases;
     @Autowired PlatformTransactionManager manager;
+    @Autowired io.github.xw66.knowflowai.ingestion.EmbeddingCalls embeddingCalls;
     @Autowired JwtEncoder encoder;
     @LocalServerPort int port;
 
@@ -252,7 +253,7 @@ class Bm25Tests {
     private SearchService service(LuceneIndex reader) {
         var factory=new StaticListableBeanFactory(Map.of("reader",reader));
         return new SearchService(jdbc,bases,factory.getBeanProvider(EmbeddingModel.class),factory.getBeanProvider(QdrantIndex.class),
-                factory.getBeanProvider(LuceneIndex.class),factory.getBeanProvider(io.github.xw66.knowflowai.retrieval.RerankClient.class),manager);
+                factory.getBeanProvider(LuceneIndex.class),factory.getBeanProvider(io.github.xw66.knowflowai.retrieval.RerankClient.class),manager,embeddingCalls);
     }
     private List<LuceneIndex.Chunk> chunks(long document, int version) {
         return jdbc.sql("SELECT id,content FROM document_chunk WHERE document_id=:id AND index_version=:version ORDER BY chunk_index")

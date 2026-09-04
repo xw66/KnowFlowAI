@@ -695,7 +695,7 @@ class VectorTests {
                 context.getBeanProvider(org.springframework.ai.embedding.EmbeddingModel.class),context.getBeanProvider(QdrantIndex.class),
                 context.getBeanProvider(io.github.xw66.knowflowai.retrieval.LuceneIndex.class),
                 empty.getBeanProvider(io.github.xw66.knowflowai.retrieval.RerankClient.class),
-                context.getBean(org.springframework.transaction.PlatformTransactionManager.class));
+                context.getBean(org.springframework.transaction.PlatformTransactionManager.class),context.getBean(io.github.xw66.knowflowai.ingestion.EmbeddingCalls.class));
         int before=rerankCalls;
         var result=service.search(owner(task),base(task),"测试段落",5,io.github.xw66.knowflowai.retrieval.SearchService.Mode.HYBRID,true);
         assertThat(result.rerankStatus()).isEqualTo(io.github.xw66.knowflowai.retrieval.SearchService.RerankStatus.DISABLED);
@@ -938,6 +938,7 @@ class VectorTests {
         assertThat(active(task)).isEqualTo(1);
         assertThat(count(task)).isEqualTo(17);
         assertThat(requestedPath).isEqualTo("/v1/embeddings");
+        assertThat(jdbc.sql("SELECT total_tokens FROM model_call WHERE task_id=:id AND call_type='EMBEDDING' AND route='INDEX' ORDER BY id").param("id",task).query(Integer.class).list()).containsExactly(16,1);
         jdbc.sql("UPDATE document_task SET status = 'PROCESSING', stage = 'INDEXING', vector_cursor = -1, lease_token = 'crashed', lease_until = TIMESTAMPADD(SECOND,-1,CURRENT_TIMESTAMP(6)) WHERE id = :id")
                 .param("id", task).update();
         processor.processNext(); processor.processNext();
@@ -961,6 +962,8 @@ class VectorTests {
         assertThat(active(task)).isNull();
         due(task); processor.processNext();
         assertThat(state(task)).isEqualTo("SUCCEEDED");
+        assertThat(jdbc.sql("SELECT status FROM model_call WHERE task_id=:id ORDER BY id").param("id",task).query(String.class).list()).containsExactly("FAILED","COMPLETED","COMPLETED");
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call WHERE task_id=:id AND status='FAILED' AND total_tokens IS NULL AND NOT usage_known").param("id",task).query(Long.class).single()).isEqualTo(1);
     }
 
     @Test
@@ -978,6 +981,27 @@ class VectorTests {
         } finally { responseStatus = 200; }
         assertThat(state(task)).isEqualTo("FAILED");
         assertThat(active(task)).isNull();
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call WHERE task_id=:id AND status='FAILED'").param("id",task).query(Long.class).single()).isEqualTo(3);
+    }
+
+    @Test
+    void queryEmbeddingHasSeparateUsageAndLedgerOutagePreventsBothPaths() {
+        long task=seed(1); processor.processNext();
+        long last=jdbc.sql("SELECT COALESCE(MAX(id),0) FROM model_call").query(Long.class).single();
+        search.search(owner(task),base(task),"测试段落",5);
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call WHERE id>:last AND call_type='EMBEDDING' AND route='QUERY' AND task_id IS NULL AND status='COMPLETED' AND input_tokens=1 AND output_tokens=0 AND total_tokens=1 AND usage_known").param("last",last).query(Long.class).single()).isEqualTo(1);
+        long pending=seed(1);
+        int before=calls;
+        jdbc.sql("RENAME TABLE model_call TO model_call_unavailable").update();
+        try {
+            processor.processNext();
+            assertThat(state(pending)).isEqualTo("RETRY_WAIT");
+            org.assertj.core.api.Assertions.assertThatThrownBy(()->search.search(owner(task),base(task),"测试段落",5)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+            assertThat(calls).isEqualTo(before);
+        } finally { jdbc.sql("RENAME TABLE model_call_unavailable TO model_call").update(); }
+        due(pending); processor.processNext();
+        assertThat(state(pending)).isEqualTo("SUCCEEDED");
+        assertThat(calls).isEqualTo(before+1);
     }
 
     @Test

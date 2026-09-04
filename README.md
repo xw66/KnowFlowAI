@@ -422,8 +422,8 @@ DOCX 按正文顺序提取段落与表格单元格，空段落占用段落号但
 
 仅瞬态错误可重试，主模型次数耗尽后最多调用一次备用模型；认证错误或内容校验失败不重试。SSE 一旦产生正文或结束标记，后续失败保留未完成状态，禁止切换。总期限不会因重试或切换重置；最终 model / usage 来自实际返回结果的模型。Embedding 不切换模型，改写仍单次失败退回原问题。详见 [模型韧性设计](docs/model-resilience-design.md)。
 
-### 聊天调用统计
+### 模型调用统计
 
 管理员可通过 `GET /api/admin/model-calls` 分页查看聊天主备尝试，通过 `/api/admin/model-calls/summary` 查询最近 24 小时的次数、耗时和已知 Token。每次重试独立记录，流式累计 usage 不重复相加；缺失用量保持未知。调用完成不代表回答引用校验通过。
 
-当前覆盖聊天回答（CHAT）和查询改写（REWRITE），尚不代表全部模型费用；Embedding、Rerank 与价格预算控制继续分步接入。改写内容校验失败仍保留已经发生的调用和用量。边界见 [调用记账设计](docs/model-call-design.md)，完整进度见 [实施进度](docs/roadmap.md)。
+当前覆盖聊天回答（CHAT）、查询改写（REWRITE）和向量生成（EMBEDDING）；后者区分 QUERY / INDEX，入库调用关联 taskId。改写或向量内容校验失败仍保留已经发生的调用和用量。Rerank 与价格预算控制待接入，当前汇总尚不代表全部模型费用。边界见 [调用记账设计](docs/model-call-design.md)，完整进度见 [实施进度](docs/roadmap.md)。
