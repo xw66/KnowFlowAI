@@ -1,0 +1,290 @@
+{
+  "generatedAt": "2026-09-04T11:47:49.571Z",
+  "knowledgeBaseId": 12,
+  "documents": [
+    {
+      "name": "差旅报销.md",
+      "content": "差旅报销流程\n\n员工提交差旅费用报销单和发票，差旅报销由直属主管审批。差旅报销审批应在三个工作日内完成。",
+      "documentId": 11,
+      "taskId": 11,
+      "status": "PENDING"
+    },
+    {
+      "name": "采购申请.md",
+      "content": "采购申请流程\n\n采购申请必须附供应商报价。采购审批由财务总监负责。采购审批需要五个工作日。",
+      "documentId": 12,
+      "taskId": 12,
+      "status": "PENDING"
+    },
+    {
+      "name": "知识库权限.md",
+      "content": "知识库权限申请\n\n员工联系知识库所有者申请权限。所有者可授予 VIEWER 或 EDITOR。权限申请在一个工作日内处理。",
+      "documentId": 13,
+      "taskId": 13,
+      "status": "PENDING"
+    }
+  ],
+  "rerank": {
+    "applied": true,
+    "baseline": {
+      "query": "差旅报销由谁审批？",
+      "elapsedMs": 952.0682000000015,
+      "rerankStatus": "NOT_REQUESTED",
+      "hits": [
+        {
+          "chunkId": 42,
+          "documentId": 11,
+          "documentName": "差旅报销.md",
+          "content": "员工提交差旅费用报销单和发票，差旅报销由直属主管审批。差旅报销审批应在三个工作日内完成。",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "score": 0.03278688524590164
+        },
+        {
+          "chunkId": 41,
+          "documentId": 11,
+          "documentName": "差旅报销.md",
+          "content": "差旅报销流程",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "score": 0.03225806451612903
+        },
+        {
+          "chunkId": 44,
+          "documentId": 12,
+          "documentName": "采购申请.md",
+          "content": "采购申请必须附供应商报价。采购审批由财务总监负责。采购审批需要五个工作日。",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "score": 0.031746031746031744
+        },
+        {
+          "chunkId": 45,
+          "documentId": 13,
+          "documentName": "知识库权限.md",
+          "content": "知识库权限申请",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "score": 0.015625
+        },
+        {
+          "chunkId": 43,
+          "documentId": 12,
+          "documentName": "采购申请.md",
+          "content": "采购申请流程",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "score": 0.015384615384615385
+        }
+      ]
+    },
+    "requested": {
+      "query": "差旅报销由谁审批？",
+      "elapsedMs": 425.08749999999964,
+      "rerankStatus": "APPLIED",
+      "hits": [
+        {
+          "chunkId": 42,
+          "documentId": 11,
+          "documentName": "差旅报销.md",
+          "content": "员工提交差旅费用报销单和发票，差旅报销由直属主管审批。差旅报销审批应在三个工作日内完成。",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "score": 0.9283736164890385
+        },
+        {
+          "chunkId": 41,
+          "documentId": 11,
+          "documentName": "差旅报销.md",
+          "content": "差旅报销流程",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "score": 0.25772674207454177
+        },
+        {
+          "chunkId": 44,
+          "documentId": 12,
+          "documentName": "采购申请.md",
+          "content": "采购申请必须附供应商报价。采购审批由财务总监负责。采购审批需要五个工作日。",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "score": 0.12707318875204998
+        },
+        {
+          "chunkId": 46,
+          "documentId": 13,
+          "documentName": "知识库权限.md",
+          "content": "员工联系知识库所有者申请权限。所有者可授予 VIEWER 或 EDITOR。权限申请在一个工作日内处理。",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "score": 0.05350968665340747
+        },
+        {
+          "chunkId": 45,
+          "documentId": 13,
+          "documentName": "知识库权限.md",
+          "content": "知识库权限申请",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "score": 0.05320332964954509
+        }
+      ]
+    }
+  },
+  "rewrite": {
+    "status": "APPLIED",
+    "originalQuestion": "这项审批多久能完成？",
+    "retrievalQuery": "差旅报销由直属主管审批多久能完成？",
+    "seed": {
+      "status": "ANSWERED",
+      "answer": "差旅报销由直属主管审批[C1]",
+      "citations": [
+        {
+          "id": "C1",
+          "chunkId": 42,
+          "documentId": 11,
+          "documentName": "差旅报销.md",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "quote": "员工提交差旅费用报销单和发票，差旅报销由直属主管审批。"
+        }
+      ],
+      "model": "qwen3.8-flash",
+      "usage": {
+        "inputTokens": 286,
+        "outputTokens": 41,
+        "totalTokens": 327
+      },
+      "rerankStatus": "NOT_REQUESTED"
+    },
+    "answer": {
+      "status": "ANSWERED",
+      "answer": "差旅报销审批应在三个工作日内完成[C1]。",
+      "citations": [
+        {
+          "id": "C1",
+          "chunkId": 42,
+          "documentId": 11,
+          "documentName": "差旅报销.md",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "quote": "员工提交差旅费用报销单和发票，差旅报销由直属主管审批。差旅报销审批应在三个工作日内完成。"
+        }
+      ],
+      "model": "qwen3.8-flash",
+      "usage": {
+        "inputTokens": 290,
+        "outputTokens": 70,
+        "totalTokens": 360
+      },
+      "rerankStatus": "NOT_REQUESTED"
+    },
+    "baseline": {
+      "query": "这项审批多久能完成？",
+      "elapsedMs": 201.59300000000076,
+      "rerankStatus": "NOT_REQUESTED",
+      "hits": [
+        {
+          "chunkId": 42,
+          "documentId": 11,
+          "documentName": "差旅报销.md",
+          "content": "员工提交差旅费用报销单和发票，差旅报销由直属主管审批。差旅报销审批应在三个工作日内完成。",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "score": 0.03252247488101534
+        },
+        {
+          "chunkId": 44,
+          "documentId": 12,
+          "documentName": "采购申请.md",
+          "content": "采购申请必须附供应商报价。采购审批由财务总监负责。采购审批需要五个工作日。",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "score": 0.03252247488101534
+        },
+        {
+          "chunkId": 46,
+          "documentId": 13,
+          "documentName": "知识库权限.md",
+          "content": "员工联系知识库所有者申请权限。所有者可授予 VIEWER 或 EDITOR。权限申请在一个工作日内处理。",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "score": 0.015873015873015872
+        },
+        {
+          "chunkId": 45,
+          "documentId": 13,
+          "documentName": "知识库权限.md",
+          "content": "知识库权限申请",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "score": 0.015625
+        },
+        {
+          "chunkId": 43,
+          "documentId": 12,
+          "documentName": "采购申请.md",
+          "content": "采购申请流程",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "score": 0.015384615384615385
+        }
+      ]
+    },
+    "rewritten": {
+      "query": "差旅报销由直属主管审批多久能完成？",
+      "elapsedMs": 171.97180000000117,
+      "rerankStatus": "NOT_REQUESTED",
+      "hits": [
+        {
+          "chunkId": 42,
+          "documentId": 11,
+          "documentName": "差旅报销.md",
+          "content": "员工提交差旅费用报销单和发票，差旅报销由直属主管审批。差旅报销审批应在三个工作日内完成。",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "score": 0.03278688524590164
+        },
+        {
+          "chunkId": 41,
+          "documentId": 11,
+          "documentName": "差旅报销.md",
+          "content": "差旅报销流程",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "score": 0.03225806451612903
+        },
+        {
+          "chunkId": 44,
+          "documentId": 12,
+          "documentName": "采购申请.md",
+          "content": "采购申请必须附供应商报价。采购审批由财务总监负责。采购审批需要五个工作日。",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "score": 0.031746031746031744
+        },
+        {
+          "chunkId": 46,
+          "documentId": 13,
+          "documentName": "知识库权限.md",
+          "content": "员工联系知识库所有者申请权限。所有者可授予 VIEWER 或 EDITOR。权限申请在一个工作日内处理。",
+          "pageNumber": null,
+          "paragraphNumber": 2,
+          "score": 0.015625
+        },
+        {
+          "chunkId": 45,
+          "documentId": 13,
+          "documentName": "知识库权限.md",
+          "content": "知识库权限申请",
+          "pageNumber": null,
+          "paragraphNumber": 1,
+          "score": 0.015384615384615385
+        }
+      ]
+    },
+    "baselineRelevantRank": 1,
+    "rewrittenRelevantRank": 1
+  },
+  "limitation": "三篇合成文档、一次追问的真实联调；相同原始问题和记录的改写问题分别检索，不代表完整数据集质量提升。"
+}

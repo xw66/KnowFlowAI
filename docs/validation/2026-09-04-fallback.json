@@ -1,0 +1,20 @@
+{
+  "primaryFailure" : "INJECTED_TIMEOUT",
+  "primaryAttempts" : 2,
+  "ledger" : {
+    "id" : 44,
+    "status" : "COMPLETED",
+    "actualModel" : "qwen-turbo",
+    "usageKnown" : true,
+    "inputTokens" : 49,
+    "outputTokens" : 14,
+    "totalTokens" : 63,
+    "estimatedCost" : 0.000023100000,
+    "budgetSettled" : true
+  },
+  "limitation" : "验证人工注入主模型故障与真实备用调用的组合，不代表百炼发生过实际故障或性能评测。",
+  "actualAnswer" : "差旅报销审批应在三个工作日内完成。[C1]",
+  "backup" : "qwen-turbo",
+  "realBackupCalls" : 1,
+  "partialOutputPreserved" : [ "已输出的部分正文" ]
+}
