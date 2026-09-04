@@ -15,6 +15,7 @@ const selectedFile = shallowRef<File>(); const taskStatus = shallowRef(''); cons
 const documents = shallowRef<DocumentItem[]>([]); const conversations = shallowRef<Conversation[]>([])
 const members = shallowRef<Member[]>([]); const memberForm = reactive({ userId: '', role: 'VIEWER' })
 const knowledgeBases = shallowRef<KnowledgeBase[]>([]); const newKnowledgeBaseName = shallowRef(''); const creatingKnowledgeBase = shallowRef(false)
+const documentAction = shallowRef<number | null>(null)
 
 async function loadKnowledgeBases() {
   const response = await fetch('/api/knowledge-bases?limit=100', { headers: { Authorization: `Bearer ${props.token}` } })
@@ -68,6 +69,27 @@ async function removeMember(userId:number) {
   if(!response.ok) throw new Error('成员移除失败'); await loadMembers()
 }
 
+async function reindex(documentId: number) {
+  documentAction.value = documentId; error.value = ''
+  try {
+    const response = await fetch(`/api/knowledge-bases/${encodeURIComponent(form.knowledgeBaseId)}/documents/${documentId}/reindex`, { method: 'POST', headers: { Authorization: `Bearer ${props.token}`, 'Idempotency-Key': crypto.randomUUID() } })
+    if (!response.ok) throw new Error('重新处理失败，请等待当前任务结束')
+    const task = await response.json(); taskStatus.value = `文档任务 ${task.taskId} 已重新创建`
+    await loadDocuments()
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : '重新处理失败' }
+  finally { documentAction.value = null }
+}
+async function deleteDocument(documentId: number) {
+  if (!window.confirm('删除后文档将从知识库隐藏，确定继续吗？')) return
+  documentAction.value = documentId; error.value = ''
+  try {
+    const response = await fetch(`/api/knowledge-bases/${encodeURIComponent(form.knowledgeBaseId)}/documents/${documentId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${props.token}` } })
+    if (!response.ok) throw new Error('文档删除失败，请确认编辑权限')
+    await loadDocuments(); taskStatus.value = '文档已隐藏，向量清理将在后台完成'
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : '文档删除失败' }
+  finally { documentAction.value = null }
+}
+
 function selectFile(event: Event) { selectedFile.value = (event.target as HTMLInputElement).files?.[0] }
 async function upload() {
   if (!selectedFile.value) return
@@ -102,7 +124,7 @@ onMounted(() => loadKnowledgeBases().catch(cause => { error.value = cause instan
     <section class="base-panel"><div class="panel-title"><h3>我的知识库</h3><button class="link-button" @click="loadKnowledgeBases">刷新</button></div><div class="base-actions"><select v-model="form.knowledgeBaseId" required><option disabled value="">选择知识库</option><option v-for="base in knowledgeBases" :key="base.id" :value="String(base.id)">{{ base.name }} · {{ base.role }}</option></select><input v-model.trim="newKnowledgeBaseName" placeholder="新知识库名称" maxlength="128" /><button :disabled="creatingKnowledgeBase || !newKnowledgeBaseName.trim()" @click="createKnowledgeBase">{{ creatingKnowledgeBase ? '创建中…' : '创建知识库' }}</button></div></section>
     <form class="search-card" @submit.prevent="search"><label class="query-field">输入问题<input v-model.trim="form.query" required placeholder="例如：如何申请知识库访问权限？" /></label><button :disabled="busy || !form.knowledgeBaseId">{{ busy ? '检索中…' : '开始检索' }}</button></form>
     <section class="tool-row"><label class="upload-label">上传文档<input type="file" accept=".pdf,.md,.markdown,.docx,.txt,text/plain,application/pdf" @change="selectFile" /></label><button class="secondary" :disabled="!selectedFile || !form.knowledgeBaseId" @click="upload">上传并处理</button><button class="secondary" :disabled="!form.knowledgeBaseId" @click="loadDocuments">刷新文档</button><span v-if="taskStatus" class="muted">{{ taskStatus }}</span></section>
-    <section v-if="documents.length" class="document-panel"><div class="panel-title"><h3>文档治理</h3><small>{{ documents.length }} 个文档</small></div><div v-for="document in documents" :key="document.id" class="document-row"><span class="status-dot" :class="document.status.toLowerCase()"></span><strong>{{ document.name }}</strong><small>v{{ document.indexVersion }} · {{ document.latestTaskStatus }}<template v-if="document.latestTaskStage">/{{ document.latestTaskStage }}</template></small><small v-if="document.errorCode" class="error">{{ document.errorCode }}</small></div></section>
+    <section v-if="documents.length" class="document-panel"><div class="panel-title"><h3>文档治理</h3><small>{{ documents.length }} 个文档</small></div><div v-for="document in documents" :key="document.id" class="document-row"><span class="status-dot" :class="document.status.toLowerCase()"></span><strong>{{ document.name }}</strong><small>v{{ document.indexVersion }} · {{ document.latestTaskStatus }}<template v-if="document.latestTaskStage">/{{ document.latestTaskStage }}</template></small><small v-if="document.errorCode" class="error">{{ document.errorCode }}</small><button class="row-button" :disabled="documentAction !== null" @click="reindex(document.id)">重处理</button><button class="remove-button" :disabled="documentAction !== null" @click="deleteDocument(document.id)">删除</button></div></section>
     <section class="member-panel"><div class="panel-title"><h3>成员权限</h3><button class="link-button" @click="loadMembers">刷新</button></div><form class="member-form" @submit.prevent="saveMember"><input v-model.trim="memberForm.userId" required inputmode="numeric" placeholder="用户 ID" /><select v-model="memberForm.role"><option value="VIEWER">VIEWER · 只读</option><option value="EDITOR">EDITOR · 可编辑</option></select><button :disabled="!form.knowledgeBaseId">授权</button></form><div v-for="member in members" :key="member.userId" class="document-row"><strong>{{ member.username }}</strong><small>{{ member.role }} · {{ member.status }}</small><button v-if="member.role !== 'OWNER'" class="remove-button" @click="removeMember(member.userId)">移除</button></div><p v-if="!members.length" class="muted">点击刷新查看知识库成员</p></section>
     <p v-if="error" class="error notice">{{ error }}</p><p v-else-if="!hits.length" class="empty">输入问题后，可信片段会显示在这里。</p>
     <div v-else class="results"><article v-for="(hit,index) in hits" :key="`${hit.documentName}-${hit.paragraphNumber}-${index}`" class="result"><div class="result-meta"><span>C{{ index + 1 }}</span><strong>{{ hit.documentName }}</strong><small v-if="hit.pageNumber">第 {{ hit.pageNumber }} 页</small><small v-else-if="hit.paragraphNumber">段落 {{ hit.paragraphNumber }}</small><small class="score">{{ hit.score.toFixed(3) }}</small></div><p>{{ hit.content }}</p></article></div>
