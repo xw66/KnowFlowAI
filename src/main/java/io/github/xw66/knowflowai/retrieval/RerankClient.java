@@ -57,7 +57,7 @@ public class RerankClient implements AutoCloseable {
                 "parameters",Map.of("top_n",hits.size(),"return_documents",false));
         var request=HttpRequest.newBuilder(url).timeout(timeout).header("Authorization","Bearer "+key)
                 .header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build();
-        long id=log.start(java.util.UUID.randomUUID().toString(),1,"RERANK","PRIMARY",false,null,model);
+        long id=log.start(java.util.UUID.randomUUID().toString(),1,"RERANK","PRIMARY",false,null,model,null,url.toString());
         long started=System.nanoTime();
         String status="FAILED",errorType=null,actualModel=null;
         ModelCallLog.Tokens usage=null;

@@ -33,13 +33,15 @@ public class ModelCallController {
             @RequestParam(defaultValue="50") @Min(1) @Max(100) int limit) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(jdbc.sql("""
                 SELECT id,invocation_id,attempt_number,call_type,route,streaming,message_id,task_id,requested_model,actual_model,
-                       status,input_tokens,output_tokens,total_tokens,usage_known,latency_ms,error_type,started_at,finished_at
+                       status,input_tokens,output_tokens,total_tokens,usage_known,latency_ms,error_type,started_at,finished_at,
+                       price_version,price_currency,price_input_per_million,price_output_per_million,price_total_per_million,
+                       price_max_input_tokens,price_verified_at,price_source_url,estimated_cost
                 FROM model_call WHERE id>:after ORDER BY id LIMIT :limit
                 """).param("after",afterId).param("limit",limit).query(CallView.class).list());
     }
 
     @GetMapping("/summary")
-    @io.swagger.v3.oas.annotations.Operation(summary="管理员汇总模型调用",description="默认最近 24 小时，最多 31 天，按开始时间统计。Token 合计仅包含已知 usage，RUNNING/未知用量不能视为零成本。")
+    @io.swagger.v3.oas.annotations.Operation(summary="管理员汇总模型调用",description="默认最近 24 小时，最多 31 天。estimatedCostCny 是已知用量按调用开始时公开标价快照计算的人民币估算，不是账单；unknownCostCalls 不可视为免费。Token 合计仅包含已知字段。")
     public ResponseEntity<Summary> summary(
             @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE_TIME) Instant to) {
@@ -54,7 +56,10 @@ public class ModelCallController {
                   COUNT(CASE WHEN usage_known THEN 1 END) AS known_usage_calls,
                   COUNT(CASE WHEN NOT usage_known THEN 1 END) AS unknown_usage_calls,
                   SUM(input_tokens) AS known_input_tokens,SUM(output_tokens) AS known_output_tokens,
-                  SUM(total_tokens) AS known_total_tokens,AVG(latency_ms) AS average_latency_ms
+                  SUM(total_tokens) AS known_total_tokens,AVG(latency_ms) AS average_latency_ms,
+                  COUNT(CASE WHEN estimated_cost IS NOT NULL THEN 1 END) AS estimated_calls,
+                  COUNT(CASE WHEN estimated_cost IS NULL THEN 1 END) AS unknown_cost_calls,
+                  SUM(estimated_cost) AS estimated_cost_cny
                 FROM model_call WHERE started_at>=:from AND started_at<:to
                 """).param("from",LocalDateTime.ofInstant(from,ZoneOffset.UTC)).param("to",LocalDateTime.ofInstant(to,ZoneOffset.UTC))
                 .query(Summary.class).single();
@@ -63,7 +68,10 @@ public class ModelCallController {
 
     public record CallView(long id,String invocationId,int attemptNumber,String callType,String route,boolean streaming,
             Long messageId,Long taskId,String requestedModel,String actualModel,String status,Integer inputTokens,Integer outputTokens,
-            Integer totalTokens,boolean usageKnown,Long latencyMs,String errorType,LocalDateTime startedAt,LocalDateTime finishedAt) {}
+            Integer totalTokens,boolean usageKnown,Long latencyMs,String errorType,LocalDateTime startedAt,LocalDateTime finishedAt,
+            String priceVersion,String priceCurrency,BigDecimal priceInputPerMillion,BigDecimal priceOutputPerMillion,
+            BigDecimal priceTotalPerMillion,Integer priceMaxInputTokens,java.time.LocalDate priceVerifiedAt,String priceSourceUrl,BigDecimal estimatedCost) {}
     public record Summary(long attempts,long completed,long failed,long cancelled,long running,long knownUsageCalls,
-            long unknownUsageCalls,Long knownInputTokens,Long knownOutputTokens,Long knownTotalTokens,BigDecimal averageLatencyMs) {}
+            long unknownUsageCalls,Long knownInputTokens,Long knownOutputTokens,Long knownTotalTokens,BigDecimal averageLatencyMs,
+            long estimatedCalls,long unknownCostCalls,BigDecimal estimatedCostCny) {}
 }

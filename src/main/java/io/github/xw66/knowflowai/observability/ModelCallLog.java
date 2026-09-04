@@ -35,15 +35,27 @@ public class ModelCallLog {
     }
 
     public long start(String invocation, int attempt, String type, String route, boolean streaming, Long messageId, String model, Long taskId) {
+        return start(invocation,attempt,type,route,streaming,messageId,model,taskId,null);
+    }
+
+    public long start(String invocation, int attempt, String type, String route, boolean streaming, Long messageId, String model, Long taskId, String endpoint) {
         try {
             return transaction.execute(status -> {
                 var holder = new GeneratedKeyHolder();
                 jdbc.sql("""
-                        INSERT INTO model_call(invocation_id,attempt_number,call_type,route,streaming,message_id,requested_model,task_id)
-                        VALUES (:invocation,:attempt,:type,:route,:streaming,:message,:model,:task)
+                        INSERT INTO model_call(invocation_id,attempt_number,call_type,route,streaming,message_id,requested_model,task_id,
+                          price_version,price_currency,price_input_per_million,price_output_per_million,price_total_per_million,
+                          price_max_input_tokens,price_verified_at,price_source_url)
+                        SELECT :invocation,:attempt,:type,:route,:streaming,:message,:model,:task,
+                          p.version,p.currency,p.input_per_million,p.output_per_million,p.total_per_million,
+                          p.max_input_tokens,p.verified_at,p.source_url
+                        FROM (SELECT 1) seed LEFT JOIN model_price p ON p.call_type=:priceType AND p.endpoint=:endpoint
+                          AND p.model=:model AND p.verified_at<=CURRENT_DATE
+                        ORDER BY p.verified_at DESC,p.id DESC LIMIT 1
                         """).param("invocation", invocation).param("attempt", attempt).param("route", route)
                         .param("type",type).param("streaming", streaming).param("message", messageId, Types.BIGINT).param("model", model)
-                        .param("task",taskId,Types.BIGINT).update(holder);
+                        .param("task",taskId,Types.BIGINT).param("priceType",type.equals("REWRITE")?"CHAT":type)
+                        .param("endpoint",endpoint==null?null:endpoint.replaceAll("/+$",""),Types.VARCHAR).update(holder);
                 return Objects.requireNonNull(holder.getKey()).longValue();
             });
         } catch (DataAccessException | TransactionException exception) {
@@ -57,7 +69,17 @@ public class ModelCallLog {
             transaction.executeWithoutResult(ignored -> jdbc.sql("""
                     UPDATE model_call SET status=:status,actual_model=:model,input_tokens=:input,
                       output_tokens=:output,total_tokens=:total,usage_known=:known,latency_ms=:latency,
-                      error_type=:error,finished_at=CURRENT_TIMESTAMP(6)
+                      error_type=:error,finished_at=CURRENT_TIMESTAMP(6),
+                      estimated_cost=CASE
+                        WHEN price_version IS NULL THEN NULL
+                        WHEN :model IS NOT NULL AND :model<>'' AND BINARY :model<>BINARY requested_model THEN NULL
+                        WHEN price_max_input_tokens IS NOT NULL AND (:input IS NULL OR :input>price_max_input_tokens) THEN NULL
+                        WHEN price_total_per_million IS NOT NULL AND :total IS NOT NULL
+                          THEN CAST(:total*price_total_per_million AS DECIMAL(30,12))/1000000
+                        WHEN price_input_per_million IS NOT NULL AND :input IS NOT NULL
+                          AND (price_output_per_million=0 OR :output IS NOT NULL)
+                          THEN CAST(:input*price_input_per_million+COALESCE(:output,0)*price_output_per_million AS DECIMAL(30,12))/1000000
+                        ELSE NULL END
                     WHERE id=:id AND status='RUNNING'
                     """).param("id", id).param("status", status).param("model", model, Types.VARCHAR)
                     .param("input", usage == null ? null : usage.input(), Types.INTEGER)

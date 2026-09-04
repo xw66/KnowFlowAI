@@ -12,13 +12,15 @@ import org.springframework.stereotype.Service;
 public class EmbeddingCalls {
     private final ModelCallLog log;
     private final String requestedModel;
+    private final String endpoint;
 
-    public EmbeddingCalls(ModelCallLog log,@Value("${app.embedding.model}") String requestedModel) {
+    public EmbeddingCalls(ModelCallLog log,@Value("${app.embedding.model}") String requestedModel,@Value("${app.embedding.base-url}") String endpoint) {
         this.log=log; this.requestedModel=requestedModel;
+        this.endpoint=endpoint;
     }
 
     public List<float[]> embed(EmbeddingModel model,List<String> texts,Long taskId) {
-        long id=log.start(UUID.randomUUID().toString(),1,"EMBEDDING",taskId==null?"QUERY":"INDEX",false,null,requestedModel,taskId);
+        long id=log.start(UUID.randomUUID().toString(),1,"EMBEDDING",taskId==null?"QUERY":"INDEX",false,null,requestedModel,taskId,endpoint);
         long started=System.nanoTime();
         try {
             var response=model.embedForResponse(texts);

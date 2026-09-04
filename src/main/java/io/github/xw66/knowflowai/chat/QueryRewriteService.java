@@ -60,7 +60,7 @@ public class QueryRewriteService {
         }
     }
     private org.springframework.ai.chat.model.ChatResponse invoke(ChatModel model,Prompt prompt,long messageId) {
-        long id=log.start(java.util.UUID.randomUUID().toString(),1,"REWRITE","PRIMARY",false,messageId,model.getDefaultOptions().getModel());
+        long id=log.start(java.util.UUID.randomUUID().toString(),1,"REWRITE","PRIMARY",false,messageId,model.getDefaultOptions().getModel(),null,((OpenAiChatOptions)model.getDefaultOptions()).getBaseUrl());
         long started=System.nanoTime();
         try {
             var response=model.call(prompt);

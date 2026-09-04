@@ -98,6 +98,76 @@ class ModelCallTests {
         assertThat(summary.path("knownOutputTokens").isNull()).isTrue();
     }
 
+    private static final String BEIJING="https://dashscope.aliyuncs.com/compatible-mode/v1";
+    private static final String RERANK="https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank";
+    long priced(String type,String model,String endpoint) {
+        return log.start(UUID.randomUUID().toString(),1,type,"PRIMARY",false,null,model,null,endpoint);
+    }
+    java.math.BigDecimal cost(long id) {
+        return jdbc.sql("SELECT estimated_cost FROM model_call WHERE id=:id").param("id",id).query((row,index)->row.getBigDecimal(1)).list().getFirst();
+    }
+    @Test void computesEachBillingBasisAndExposesKnownAndUnknownCosts() throws Exception {
+        long chat=priced("CHAT","qwen3.8-flash",BEIJING+"/");
+        log.finish(chat,"COMPLETED","qwen3.8-flash",new ModelCallLog.Tokens(1000,500,1500),1,null);
+        assertThat(cost(chat)).isEqualByComparingTo("0.00215");
+        long rewrite=priced("REWRITE","qwen3.8-flash",BEIJING);
+        log.finish(rewrite,"FAILED",null,new ModelCallLog.Tokens(1000,0,1000),1,"InvalidResponse");
+        assertThat(cost(rewrite)).isEqualByComparingTo("0.0008");
+        long embedding=priced("EMBEDDING","text-embedding-v4",BEIJING);
+        log.finish(embedding,"COMPLETED",null,new ModelCallLog.Tokens(1000,null,1000),1,null);
+        assertThat(cost(embedding)).isEqualByComparingTo("0.0005");
+        long rank=priced("RERANK","gte-rerank-v2",RERANK);
+        log.finish(rank,"COMPLETED",null,new ModelCallLog.Tokens(null,null,1000),1,null);
+        assertThat(cost(rank)).isEqualByComparingTo("0.0008");
+        start();
+        String admin=token("ADMIN");
+        var summary=json.readTree(get("/summary",admin).body());
+        assertThat(summary.path("estimatedCalls").asInt()).isEqualTo(4);
+        assertThat(summary.path("unknownCostCalls").asInt()).isEqualTo(1);
+        assertThat(new java.math.BigDecimal(summary.path("estimatedCostCny").asText())).isEqualByComparingTo("0.00425");
+        var row=json.readTree(get("?limit=1",admin).body()).get(0);
+        assertThat(row.path("priceVersion").asText()).isEqualTo("bailian-beijing-2026-09-04");
+        assertThat(row.path("priceCurrency").asText()).isEqualTo("CNY");
+        assertThat(row.path("priceSourceUrl").asText()).startsWith("https://help.aliyun.com/");
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"endpoint","model","actual","usage","partial","range"})
+    void unmatchedOrIncompleteCostsRemainUnknown(String kind) throws Exception {
+        long id=priced("CHAT",kind.equals("model")?"unpriced":"qwen3.8-flash",kind.equals("endpoint")?"https://dashscope-intl.aliyuncs.com/compatible-mode/v1":BEIJING);
+        var usage=switch(kind) {
+            case "usage" -> null;
+            case "partial" -> new ModelCallLog.Tokens(1000,null,1000);
+            case "range" -> new ModelCallLog.Tokens(1000001,1,1000002);
+            default -> new ModelCallLog.Tokens(1,1,2);
+        };
+        log.finish(id,"COMPLETED",kind.equals("actual")?"another-model":null,usage,1,null);
+        assertThat(cost(id)).isNull();
+        var summary=json.readTree(get("/summary",token("ADMIN")).body());
+        assertThat(summary.path("estimatedCostCny").isNull()).isTrue();
+        assertThat(summary.path("unknownCostCalls").asInt()).isEqualTo(1);
+    }
+    @Test void priceSnapshotSurvivesNewVersionAndTerminalReplay() {
+        long first=priced("CHAT","qwen3.8-flash",BEIJING);
+        jdbc.sql("""
+                INSERT INTO model_price(version,call_type,endpoint,model,input_per_million,output_per_million,max_input_tokens,verified_at,source_url)
+                SELECT 'test-new-version',call_type,endpoint,model,0.000001,0,max_input_tokens,CURRENT_DATE,source_url
+                FROM model_price WHERE call_type='CHAT' AND version='bailian-beijing-2026-09-04'
+                """).update();
+        try {
+            jdbc.sql("""
+                    INSERT INTO model_price(version,call_type,endpoint,model,input_per_million,output_per_million,max_input_tokens,verified_at,source_url)
+                    SELECT 'test-future-version',call_type,endpoint,model,99,99,max_input_tokens,DATE_ADD(CURRENT_DATE,INTERVAL 1 DAY),source_url
+                    FROM model_price WHERE call_type='CHAT' AND version='bailian-beijing-2026-09-04'
+                    """).update();
+            long second=priced("CHAT","qwen3.8-flash",BEIJING);
+            for(long id:List.of(first,second)) log.finish(id,"COMPLETED",null,new ModelCallLog.Tokens(1,1,2),1,null);
+            assertThat(cost(first)).isEqualByComparingTo("0.0000035");
+            assertThat(cost(second)).isEqualByComparingTo("0.000000000001");
+            log.finish(first,"FAILED",null,new ModelCallLog.Tokens(100,100,200),1,"LateError");
+            assertThat(cost(first)).isEqualByComparingTo("0.0000035");
+        } finally { jdbc.sql("DELETE FROM model_price WHERE version IN ('test-new-version','test-future-version')").update(); }
+    }
+
     HttpResponse<String> get(String path,String token) throws Exception {
         var request=HttpRequest.newBuilder(URI.create("http://localhost:"+port+"/api/admin/model-calls"+path)).timeout(java.time.Duration.ofSeconds(5));
         if(token!=null) request.header("Authorization","Bearer "+token);

@@ -52,7 +52,7 @@ public class ChatCalls {
     }
     private Mono<ChatResponse> single(ChatModel model,Prompt input,long end,String invocation,AtomicInteger attempts,String route,Long messageId) {
         return Mono.defer(()-> {
-            var trace=new Attempt(log.start(invocation,attempts.incrementAndGet(),route,false,messageId,model.getDefaultOptions().getModel()),end,false);
+            var trace=new Attempt(log.start(invocation,attempts.incrementAndGet(),"CHAT",route,false,messageId,model.getDefaultOptions().getModel(),null,((OpenAiChatOptions)model.getDefaultOptions()).getBaseUrl()),end,false);
             return Mono.fromCallable(()-> {
                 if(System.nanoTime()>=end) throw new TimeoutException("聊天总期限已到");
                 return model.call(options(model,input,false,end));
@@ -77,7 +77,7 @@ public class ChatCalls {
     }
     private Flux<ChatResponse> attempt(ChatModel model,Prompt input,long end,AtomicBoolean started,String invocation,AtomicInteger attempts,String route,Long messageId) {
         return Flux.defer(()-> {
-            var trace=new Attempt(log.start(invocation,attempts.incrementAndGet(),route,true,messageId,model.getDefaultOptions().getModel()),end,true);
+            var trace=new Attempt(log.start(invocation,attempts.incrementAndGet(),"CHAT",route,true,messageId,model.getDefaultOptions().getModel(),null,((OpenAiChatOptions)model.getDefaultOptions()).getBaseUrl()),end,true);
             long firstEnd=System.nanoTime()+firstToken.toNanos();
             return Flux.defer(()->System.nanoTime()>=end ? Flux.<ChatResponse>error(new TimeoutException("聊天总期限已到"))
                     : model.stream(options(model,input,true,end))).doOnNext(response-> {
