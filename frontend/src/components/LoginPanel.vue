@@ -1,36 +1,24 @@
 <script setup lang="ts">
 import { reactive, shallowRef } from 'vue'
-
+import { createApi } from '../api'
+import { useScope } from '../useScope'
 const emit = defineEmits<{ authenticated: [token: string] }>()
 const form = reactive({ username: '', password: '' })
 const mode = shallowRef<'login' | 'register'>('login')
-const busy = shallowRef(false)
-const error = shallowRef('')
-
-async function submit() {
-  busy.value = true; error.value = ''
-  try {
+const { signal, error, busy, run } = useScope()
+const api = createApi('', () => {})
+function submit() {
+  void run(async () => {
+    const body = JSON.stringify(form)
     if (mode.value === 'register') {
-      const registered = await fetch('/api/auth/register', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(form) })
-      if (!registered.ok) throw new Error('注册失败，请检查用户名和密码')
+      await api.json('/auth/register', { method: 'POST', body, signal })
+      mode.value = 'login'
     }
-    const response = await fetch('/api/auth/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(form) })
-    if (!response.ok) throw new Error('登录失败，请检查账号或密码')
-    emit('authenticated', (await response.json()).accessToken)
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : '请求失败' }
-  finally { busy.value = false }
+    const result = await api.json<{ accessToken: string }>('/auth/login', { method: 'POST', body, signal })
+    signal.throwIfAborted(); emit('authenticated', result.accessToken)
+  })
 }
 </script>
-
 <template>
-  <section class="auth-card">
-    <p class="eyebrow">KNOWFLOW AI</p><h1>让企业知识<br /><em>流动起来</em></h1>
-    <p class="muted">统一治理文档，快速找到可信答案。</p>
-    <form class="stack" @submit.prevent="submit">
-      <label>用户名<input v-model.trim="form.username" required minlength="3" autocomplete="username" /></label>
-      <label>密码<input v-model="form.password" required minlength="8" type="password" autocomplete="current-password" /></label>
-      <p v-if="error" class="error">{{ error }}</p><button :disabled="busy">{{ busy ? '处理中…' : mode === 'login' ? '登录 KnowFlow' : '创建账号' }}</button>
-    </form>
-    <button class="link-button" @click="mode = mode === 'login' ? 'register' : 'login'">{{ mode === 'login' ? '还没有账号？立即注册' : '已有账号？返回登录' }}</button>
-  </section>
+  <main class="login-page"><a href="#" class="brand"><span class="brand-mark">K</span>KnowFlow<span class="brand-ai">AI</span></a><section class="login-box"><span class="login-symbol" aria-hidden="true">▤</span><h1>{{ mode === 'login' ? '回到你的知识空间' : '创建 KnowFlow 账号' }}</h1><p class="muted">整理文档，查找知识，让回答有据可依。</p><form @submit.prevent="submit"><label>用户名<input v-model.trim="form.username" autocomplete="username" required pattern="[A-Za-z0-9_]{3,64}" maxlength="64" placeholder="3–64 位字母、数字或下划线" /></label><label>密码<input v-model="form.password" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" type="password" required minlength="12" maxlength="72" placeholder="至少 12 个字符" /></label><p v-if="error" class="error" role="alert">{{ error }}</p><button class="primary wide" :disabled="busy">{{ busy ? '处理中…' : mode === 'login' ? '登录' : '注册并登录' }}</button></form><p class="login-switch">{{ mode === 'login' ? '还没有账号？' : '已有账号？' }} <button class="text-button" :disabled="busy" @click="mode = mode === 'login' ? 'register' : 'login'; error = ''">{{ mode === 'login' ? '创建账号' : '登录' }}</button></p></section><p class="login-footer">KnowFlow AI · 企业知识治理与智能检索</p></main>
 </template>
