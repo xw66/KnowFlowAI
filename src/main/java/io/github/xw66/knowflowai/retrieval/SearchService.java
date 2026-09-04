@@ -21,16 +21,34 @@ public class SearchService {
     private final KnowledgeBaseService bases;
     private final ObjectProvider<EmbeddingModel> models;
     private final ObjectProvider<QdrantIndex> indexes;
+    private final ObjectProvider<LuceneIndex> lexicalIndexes;
     private final TransactionTemplate transaction;
 
     public SearchService(JdbcClient jdbc, KnowledgeBaseService bases, ObjectProvider<EmbeddingModel> models,
-            ObjectProvider<QdrantIndex> indexes, PlatformTransactionManager manager) {
+            ObjectProvider<QdrantIndex> indexes, ObjectProvider<LuceneIndex> lexicalIndexes, PlatformTransactionManager manager) {
         this.jdbc = jdbc; this.bases = bases; this.models = models; this.indexes = indexes;
+        this.lexicalIndexes=lexicalIndexes;
         this.transaction = new TransactionTemplate(manager);
     }
 
     public List<Hit> search(long userId, long baseId, String query, int topK) {
+        return search(userId,baseId,query,topK,Mode.VECTOR);
+    }
+
+    public List<Hit> search(long userId, long baseId, String query, int topK, Mode mode) {
         bases.get(userId, baseId);
+        if (mode==Mode.BM25) {
+            var index=lexicalIndexes.getIfAvailable();
+            if (index==null) throw unavailable();
+            LuceneIndex.Batch batch;
+            try { batch=index.search(baseId,query,200); }
+            catch (java.io.IOException | RuntimeException exception) {
+                org.slf4j.LoggerFactory.getLogger(getClass()).atWarn()
+                        .addKeyValue("exceptionType",exception.getClass().getSimpleName()).log("BM25 检索不可用");
+                throw unavailable();
+            }
+            return hydrate(userId,baseId,topK,batch.candidates(),mode,batch.instanceId());
+        }
         var model = models.getIfAvailable();
         var index = indexes.getIfAvailable();
         if (model == null || index == null) throw unavailable();
@@ -45,19 +63,28 @@ public class SearchService {
                     .addKeyValue("exceptionType", exception.getClass().getSimpleName()).log("向量检索不可用");
             throw unavailable();
         }
+        var candidates=new ArrayList<Candidate>();
+        for (JsonNode point : points) {
+            var payload=point.path("payload");
+            candidates.add(new Candidate(payload.path("chunk_id").asLong(-1),payload.path("document_id").asLong(-1),
+                    payload.path("knowledge_base_id").asLong(-1),payload.path("index_version").asInt(-1),
+                    point.path("score").asDouble(Double.NaN)));
+        }
+        return hydrate(userId,baseId,topK,candidates,mode,index.collection());
+    }
+
+    private List<Hit> hydrate(long userId, long baseId, int topK, List<Candidate> candidates, Mode mode, String scope) {
         return transaction.execute(status -> {
             // 网络调用后重新授权；短共享锁与成员修改所用知识库行锁互斥。
             jdbc.sql("SELECT id FROM knowledge_base WHERE id=:id FOR SHARE").param("id", baseId).query(Long.class).optional();
             bases.get(userId, baseId);
             var hits = new ArrayList<Hit>();
             var seen = new HashSet<Long>();
-            for (JsonNode point : points) {
-                var payload = point.path("payload");
-                long chunkId = payload.path("chunk_id").asLong(-1);
-                long documentId = payload.path("document_id").asLong(-1);
-                int version = payload.path("index_version").asInt(-1);
-                double score = point.path("score").asDouble(Double.NaN);
-                if (payload.path("knowledge_base_id").asLong(-1) != baseId || chunkId <= 0 || !Double.isFinite(score)) continue;
+            for (Candidate point : candidates) {
+                long chunkId=point.chunkId(), documentId=point.documentId();
+                int version=point.indexVersion();
+                double score=point.score();
+                if (point.knowledgeBaseId()!=baseId || chunkId<=0 || !Double.isFinite(score)) continue;
                 var candidate = jdbc.sql("""
                         SELECT c.id AS chunk_id, d.id AS document_id, d.name AS document_name,
                             c.content, c.page_number, c.paragraph_number
@@ -67,9 +94,12 @@ public class SearchService {
                         JOIN app_user u ON u.id=km.user_id
                         WHERE c.id=:chunk AND d.id=:document AND kb.id=:base AND kb.status='ACTIVE' AND u.status='ACTIVE'
                             AND d.status='READY' AND c.index_version=d.active_index_version
-                            AND c.index_version=:version AND d.vector_collection=:collection
+                            AND c.index_version=:version
+                            AND ((:mode='VECTOR' AND d.vector_collection=:scope) OR (:mode='BM25' AND EXISTS (
+                                SELECT 1 FROM bm25_index_progress p WHERE p.document_id=d.id AND p.index_version=c.index_version
+                                  AND p.instance_id=:scope AND p.status='READY' AND p.committed_at IS NOT NULL)))
                         """).param("chunk", chunkId).param("document", documentId).param("base", baseId)
-                        .param("user", userId).param("version", version).param("collection", index.collection())
+                        .param("user", userId).param("version", version).param("scope", scope).param("mode",mode.name())
                         .query((rs, row) -> new Hit(rs.getLong("chunk_id"), rs.getLong("document_id"), rs.getString("document_name"),
                                 rs.getString("content"), rs.getObject("page_number", Integer.class), rs.getInt("paragraph_number"), score)).optional();
                 if (candidate.isPresent() && seen.add(chunkId)) hits.add(candidate.get());
@@ -80,8 +110,10 @@ public class SearchService {
     }
 
     private static ResponseStatusException unavailable() {
-        return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "向量检索暂时不可用，请检查模型与索引配置");
+        return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "检索暂时不可用，请检查模型与索引配置");
     }
+    public enum Mode { VECTOR, BM25 }
+    public record Candidate(long chunkId, long documentId, long knowledgeBaseId, int indexVersion, double score) {}
     public record Hit(long chunkId, long documentId, String documentName, String content,
                       Integer pageNumber, int paragraphNumber, double score) {}
 }
