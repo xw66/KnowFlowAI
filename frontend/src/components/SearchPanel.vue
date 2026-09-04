@@ -5,12 +5,14 @@ interface Hit { documentName: string; paragraphNumber?: number; pageNumber?: num
 interface Citation { documentName: string; paragraphNumber?: number; pageNumber?: number; quote: string }
 interface DocumentItem { id: number; name: string; status: string; latestTaskStatus: string; latestTaskStage?: string; errorCode?: string; indexVersion: number }
 interface Conversation { id: number; knowledgeBaseId: number; createdAt: string }
+interface Member { userId: number; username: string; role: string; status: string }
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ logout: [] }>()
 const form = reactive({ knowledgeBaseId: '', query: '', topK: 5 })
 const hits = shallowRef<Hit[]>([]); const busy = shallowRef(false); const error = shallowRef('')
 const selectedFile = shallowRef<File>(); const taskStatus = shallowRef(''); const answerQuestion = shallowRef(''); const answerText = shallowRef(''); const citations = shallowRef<Citation[]>([]); const answering = shallowRef(false)
 const documents = shallowRef<DocumentItem[]>([]); const conversations = shallowRef<Conversation[]>([])
+const members = shallowRef<Member[]>([]); const memberForm = reactive({ userId: '', role: 'VIEWER' })
 
 async function search() {
   busy.value = true; error.value = ''; hits.value = []
@@ -31,6 +33,19 @@ async function loadDocuments() {
 async function loadConversations() {
   const response=await fetch('/api/conversations?limit=20',{headers:{Authorization:`Bearer ${props.token}`}})
   if(!response.ok) throw new Error('会话历史读取失败'); conversations.value=await response.json()
+}
+async function loadMembers() {
+  if(!form.knowledgeBaseId) return
+  const response=await fetch(`/api/knowledge-bases/${encodeURIComponent(form.knowledgeBaseId)}/members?limit=50`,{headers:{Authorization:`Bearer ${props.token}`}})
+  if(!response.ok) throw new Error('成员列表读取失败'); members.value=await response.json()
+}
+async function saveMember() {
+  const response=await fetch(`/api/knowledge-bases/${encodeURIComponent(form.knowledgeBaseId)}/members/${encodeURIComponent(memberForm.userId)}`,{method:'PUT',headers:{Authorization:`Bearer ${props.token}`,'Content-Type':'application/json'},body:JSON.stringify({role:memberForm.role})})
+  if(!response.ok) throw new Error('成员授权失败'); await loadMembers(); memberForm.userId=''
+}
+async function removeMember(userId:number) {
+  const response=await fetch(`/api/knowledge-bases/${encodeURIComponent(form.knowledgeBaseId)}/members/${userId}`,{method:'DELETE',headers:{Authorization:`Bearer ${props.token}`}})
+  if(!response.ok) throw new Error('成员移除失败'); await loadMembers()
 }
 
 function selectFile(event: Event) { selectedFile.value = (event.target as HTMLInputElement).files?.[0] }
@@ -65,6 +80,7 @@ async function ask() {
     <form class="search-card" @submit.prevent="search"><label>知识库 ID<input v-model="form.knowledgeBaseId" required inputmode="numeric" placeholder="例如 1" /></label><label class="query-field">输入问题<input v-model.trim="form.query" required placeholder="例如：如何申请知识库访问权限？" /></label><button :disabled="busy">{{ busy ? '检索中…' : '开始检索' }}</button></form>
     <section class="tool-row"><label class="upload-label">上传文档<input type="file" accept=".pdf,.md,.markdown,.docx,.txt,text/plain,application/pdf" @change="selectFile" /></label><button class="secondary" :disabled="!selectedFile || !form.knowledgeBaseId" @click="upload">上传并处理</button><button class="secondary" :disabled="!form.knowledgeBaseId" @click="loadDocuments">刷新文档</button><span v-if="taskStatus" class="muted">{{ taskStatus }}</span></section>
     <section v-if="documents.length" class="document-panel"><div class="panel-title"><h3>文档治理</h3><small>{{ documents.length }} 个文档</small></div><div v-for="document in documents" :key="document.id" class="document-row"><span class="status-dot" :class="document.status.toLowerCase()"></span><strong>{{ document.name }}</strong><small>v{{ document.indexVersion }} · {{ document.latestTaskStatus }}<template v-if="document.latestTaskStage">/{{ document.latestTaskStage }}</template></small><small v-if="document.errorCode" class="error">{{ document.errorCode }}</small></div></section>
+    <section class="member-panel"><div class="panel-title"><h3>成员权限</h3><button class="link-button" @click="loadMembers">刷新</button></div><form class="member-form" @submit.prevent="saveMember"><input v-model.trim="memberForm.userId" required inputmode="numeric" placeholder="用户 ID" /><select v-model="memberForm.role"><option value="VIEWER">VIEWER · 只读</option><option value="EDITOR">EDITOR · 可编辑</option></select><button :disabled="!form.knowledgeBaseId">授权</button></form><div v-for="member in members" :key="member.userId" class="document-row"><strong>{{ member.username }}</strong><small>{{ member.role }} · {{ member.status }}</small><button v-if="member.role !== 'OWNER'" class="remove-button" @click="removeMember(member.userId)">移除</button></div><p v-if="!members.length" class="muted">点击刷新查看知识库成员</p></section>
     <p v-if="error" class="error notice">{{ error }}</p><p v-else-if="!hits.length" class="empty">输入问题后，可信片段会显示在这里。</p>
     <div v-else class="results"><article v-for="(hit,index) in hits" :key="`${hit.documentName}-${hit.paragraphNumber}-${index}`" class="result"><div class="result-meta"><span>C{{ index + 1 }}</span><strong>{{ hit.documentName }}</strong><small v-if="hit.pageNumber">第 {{ hit.pageNumber }} 页</small><small v-else-if="hit.paragraphNumber">段落 {{ hit.paragraphNumber }}</small><small class="score">{{ hit.score.toFixed(3) }}</small></div><p>{{ hit.content }}</p></article></div>
     <section class="answer-card"><div class="answer-heading"><div><p class="eyebrow">EVIDENCE ANSWER</p><h3>基于证据问答</h3></div><span v-if="answering" class="muted">正在生成…</span></div><form class="ask-row" @submit.prevent="ask"><input v-model.trim="answerQuestion" required :disabled="answering" placeholder="针对当前知识库继续提问" /><button :disabled="answering || !form.knowledgeBaseId">{{ answering ? '生成中…' : '提问' }}</button></form><p v-if="answerText" class="answer-text">{{ answerText }}</p><div v-if="citations.length" class="citation-list"><small v-for="citation in citations" :key="`${citation.documentName}-${citation.paragraphNumber}`">{{ citation.documentName }} · 段落 {{ citation.paragraphNumber ?? '—' }}：{{ citation.quote }}</small></div></section>
