@@ -21,7 +21,7 @@
 | 15 统计观测 | 已完成 | 四类调用账本、价格快照、标价估算、20 元预算预占/结算/拒绝、requestId 追踪及管理员查询；预算专项 15 项通过 |
 | 16 对账恢复 | 部分完成 | 管理员只读对账接口已提供，限定范围修复待实施 |
 | 17 完整 Compose | 已完成 | API、Worker、MySQL、Redis、Kafka、Qdrant；共享文档/Lucene 卷，镜像构建和保留数据启动健康检查通过 |
-| 18 评测与简历材料 | 待实施 | 真实数据、原始结果、环境与复现步骤 |
+| 18 评测与简历材料 | 部分完成 | `scripts/evaluate.ps1` 已提供 Vector/BM25/Hybrid 的 Recall@5、MRR、nDCG@5 和原始 JSON；当前仅 1 条演示样本，不能作为质量结论，Rerank 待真实启用后评测 |
 
 前端进度：Vue 3 + TypeScript + Vite 已完成登录/注册、JWT 会话、知识库 Hybrid 搜索、引用展示、文档上传、任务轮询、文档列表、会话历史和 SSE 问答；`vue-tsc --noEmit && vite build` 通过，Vite 开发服务器 HTTP 200。后续补充成员管理与前端完整验收流程。
 

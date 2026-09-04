@@ -62,3 +62,7 @@
 ## 2026-09-04 Compose 真实 SSE 演示
 
 在同一 Compose 环境执行 `scripts/demo.ps1 -Stream`，真实百炼流式接口返回并通过脚本校验 `metadata`、`citation`、`done` 事件。脚本没有把中间 delta 当作完成答案；本次结束后预算账本 spent 为 **0.0011864 CNY**、held 为 0，未触及 20 元上限。该验证覆盖真实流协议和引用事件，不代表 SSE 延迟或吞吐评测。
+
+## 2026-09-04 检索评测脚本
+
+执行 `scripts/evaluate.ps1` 自动创建独立评测知识库，分别请求 VECTOR、BM25、HYBRID，并将逐路响应保存到 `target/retrieval-evaluation.json`。当前演示集只有 1 个问题和 1 篇文档，三路均 Recall@5=1、MRR=1、nDCG@5=1；这些结果仅证明脚本和指标计算可运行，不能代表检索质量。Rerank 状态为 `NOT_EVALUATED`，未将关闭的 Rerank 计入结果。
