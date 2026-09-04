@@ -6,6 +6,7 @@ import java.math.RoundingMode;
 import java.util.Objects;
 
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -55,16 +56,16 @@ public class ModelCallLog {
             return transaction.execute(status -> {
                 var holder = new GeneratedKeyHolder();
                 jdbc.sql("""
-                        INSERT INTO model_call(invocation_id,attempt_number,call_type,route,streaming,message_id,requested_model,task_id,
+                        INSERT INTO model_call(invocation_id,request_id,attempt_number,call_type,route,streaming,message_id,requested_model,task_id,
                           price_version,price_currency,price_input_per_million,price_output_per_million,price_total_per_million,
                           price_max_input_tokens,price_verified_at,price_source_url)
-                        SELECT :invocation,:attempt,:type,:route,:streaming,:message,:model,:task,
+                        SELECT :invocation,:requestId,:attempt,:type,:route,:streaming,:message,:model,:task,
                           p.version,p.currency,p.input_per_million,p.output_per_million,p.total_per_million,
                           p.max_input_tokens,p.verified_at,p.source_url
                         FROM (SELECT 1) seed LEFT JOIN model_price p ON p.call_type=:priceType AND p.endpoint=:endpoint
                           AND p.model=:model AND p.verified_at<=CURRENT_DATE
                         ORDER BY p.verified_at DESC,p.id DESC LIMIT 1
-                        """).param("invocation", invocation).param("attempt", attempt).param("route", route)
+                        """).param("invocation", invocation).param("requestId", MDC.get("requestId"), Types.VARCHAR).param("attempt", attempt).param("route", route)
                         .param("type",type).param("streaming", streaming).param("message", messageId, Types.BIGINT).param("model", model)
                         .param("task",taskId,Types.BIGINT).param("priceType",type.equals("REWRITE")?"CHAT":type)
                         .param("endpoint",endpoint==null?null:endpoint.replaceAll("/+$",""),Types.VARCHAR).update(holder);

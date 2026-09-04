@@ -32,7 +32,7 @@ public class ModelCallController {
     public ResponseEntity<List<CallView>> list(@RequestParam(defaultValue="0") @PositiveOrZero long afterId,
             @RequestParam(defaultValue="50") @Min(1) @Max(100) int limit) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(jdbc.sql("""
-                SELECT id,invocation_id,attempt_number,call_type,route,streaming,message_id,task_id,requested_model,actual_model,
+                SELECT id,invocation_id,request_id,attempt_number,call_type,route,streaming,message_id,task_id,requested_model,actual_model,
                        status,input_tokens,output_tokens,total_tokens,usage_known,latency_ms,error_type,started_at,finished_at,
                        price_version,price_currency,price_input_per_million,price_output_per_million,price_total_per_million,
                        price_max_input_tokens,price_verified_at,price_source_url,estimated_cost
@@ -74,7 +74,7 @@ public class ModelCallController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(value);
     }
 
-    public record CallView(long id,String invocationId,int attemptNumber,String callType,String route,boolean streaming,
+    public record CallView(long id,String invocationId,String requestId,int attemptNumber,String callType,String route,boolean streaming,
             Long messageId,Long taskId,String requestedModel,String actualModel,String status,Integer inputTokens,Integer outputTokens,
             Integer totalTokens,boolean usageKnown,Long latencyMs,String errorType,LocalDateTime startedAt,LocalDateTime finishedAt,
             String priceVersion,String priceCurrency,BigDecimal priceInputPerMillion,BigDecimal priceOutputPerMillion,
