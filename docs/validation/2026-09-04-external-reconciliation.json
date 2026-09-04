@@ -1,6 +1,202 @@
 {
+  "collections": {
+    "generatedAt": "2026-09-04T13:21:57.713713093Z",
+    "scanStatus": "OK",
+    "collections": [
+      {
+        "name": "knowflow_a74275531fb630a7bfc0b9e1b1c1da16",
+        "status": "REGISTERED"
+      }
+    ]
+  },
+  "pages": [
+    {
+      "generatedAt": "2026-09-04T13:21:55.559128621Z",
+      "knowledgeBaseId": 12,
+      "nextAfterId": 12,
+      "documents": [
+        {
+          "documentId": 11,
+          "documentStatus": "READY",
+          "activeVersion": 1,
+          "consistency": "OBSERVED",
+          "database": "OBSERVED",
+          "file": {
+            "status": "OK",
+            "expectedChunks": null,
+            "observedChunks": null,
+            "retainedOtherVersionPoints": null,
+            "missingChunkIds": []
+          },
+          "qdrant": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          },
+          "lucene": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          }
+        },
+        {
+          "documentId": 12,
+          "documentStatus": "READY",
+          "activeVersion": 1,
+          "consistency": "OBSERVED",
+          "database": "OBSERVED",
+          "file": {
+            "status": "OK",
+            "expectedChunks": null,
+            "observedChunks": null,
+            "retainedOtherVersionPoints": null,
+            "missingChunkIds": []
+          },
+          "qdrant": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          },
+          "lucene": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          }
+        }
+      ]
+    },
+    {
+      "generatedAt": "2026-09-04T13:21:55.646120952Z",
+      "knowledgeBaseId": 12,
+      "nextAfterId": null,
+      "documents": [
+        {
+          "documentId": 13,
+          "documentStatus": "READY",
+          "activeVersion": 1,
+          "consistency": "OBSERVED",
+          "database": "OBSERVED",
+          "file": {
+            "status": "OK",
+            "expectedChunks": null,
+            "observedChunks": null,
+            "retainedOtherVersionPoints": null,
+            "missingChunkIds": []
+          },
+          "qdrant": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          },
+          "lucene": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          }
+        }
+      ]
+    }
+  ],
+  "modelCallsAfter": 44,
+  "generatedAt": "2026-09-04T13:21:58.3783258Z",
+  "files": {
+    "generatedAt": "2026-09-04T13:21:56.991406261Z",
+    "storageStatus": "OK",
+    "nextAfterKey": null,
+    "files": [
+      {
+        "key": "0c24824a-a968-4bad-9caf-042dd025c7af.md",
+        "status": "REGISTERED",
+        "sizeBytes": 152,
+        "documentId": 11,
+        "documentStatus": "READY"
+      },
+      {
+        "key": "10cfbff1-d7d5-4487-8fe1-e29711f669f1.md",
+        "status": "REGISTERED",
+        "sizeBytes": 481,
+        "documentId": 3,
+        "documentStatus": "READY"
+      },
+      {
+        "key": "162ca894-23e4-48b5-a740-a2b6159d3163.md",
+        "status": "REGISTERED",
+        "sizeBytes": 149,
+        "documentId": 13,
+        "documentStatus": "READY"
+      },
+      {
+        "key": "1d29a5ba-e347-4796-be62-274e8e8c296c.md",
+        "status": "REGISTERED",
+        "sizeBytes": 481,
+        "documentId": 8,
+        "documentStatus": "READY"
+      },
+      {
+        "key": "21554d39-81ce-415a-9a65-523539073284.md",
+        "status": "REGISTERED",
+        "sizeBytes": 481,
+        "documentId": 6,
+        "documentStatus": "READY"
+      },
+      {
+        "key": "4c7da610-b87d-4007-a725-c6c0f9d5b468.md",
+        "status": "REGISTERED",
+        "sizeBytes": 481,
+        "documentId": 9,
+        "documentStatus": "READY"
+      },
+      {
+        "key": "b52d3861-257a-434d-9411-9cb85837c936.md",
+        "status": "REGISTERED",
+        "sizeBytes": 481,
+        "documentId": 10,
+        "documentStatus": "READY"
+      },
+      {
+        "key": "da37ff82-2d2e-452f-b000-5501d2d4fbd6.md",
+        "status": "REGISTERED",
+        "sizeBytes": 131,
+        "documentId": 12,
+        "documentStatus": "READY"
+      },
+      {
+        "key": "da7b7ca9-fd76-424b-a1d7-92cc2416a71e.md",
+        "status": "REGISTERED",
+        "sizeBytes": 481,
+        "documentId": 4,
+        "documentStatus": "READY"
+      },
+      {
+        "key": "dfda3684-af59-4637-a6de-d5065ca15f0d.md",
+        "status": "REGISTERED",
+        "sizeBytes": 481,
+        "documentId": 7,
+        "documentStatus": "READY"
+      },
+      {
+        "key": "e66fe502-9d5d-4552-ba25-c73a4acdef21.md",
+        "status": "REGISTERED",
+        "sizeBytes": 481,
+        "documentId": 5,
+        "documentStatus": "READY"
+      }
+    ]
+  },
   "vectors": {
-    "generatedAt": "2026-09-04T13:05:38.158161431Z",
+    "generatedAt": "2026-09-04T13:21:57.678830233Z",
     "scanStatus": "OK",
     "nextOffset": null,
     "points": [
@@ -328,192 +524,6 @@
       }
     ]
   },
-  "modelCallsBefore": 44,
-  "generatedAt": "2026-09-04T13:05:38.7759367Z",
-  "files": {
-    "generatedAt": "2026-09-04T13:05:37.462954835Z",
-    "storageStatus": "OK",
-    "nextAfterKey": null,
-    "files": [
-      {
-        "key": "0c24824a-a968-4bad-9caf-042dd025c7af.md",
-        "status": "REGISTERED",
-        "sizeBytes": 152,
-        "documentId": 11,
-        "documentStatus": "READY"
-      },
-      {
-        "key": "10cfbff1-d7d5-4487-8fe1-e29711f669f1.md",
-        "status": "REGISTERED",
-        "sizeBytes": 481,
-        "documentId": 3,
-        "documentStatus": "READY"
-      },
-      {
-        "key": "162ca894-23e4-48b5-a740-a2b6159d3163.md",
-        "status": "REGISTERED",
-        "sizeBytes": 149,
-        "documentId": 13,
-        "documentStatus": "READY"
-      },
-      {
-        "key": "1d29a5ba-e347-4796-be62-274e8e8c296c.md",
-        "status": "REGISTERED",
-        "sizeBytes": 481,
-        "documentId": 8,
-        "documentStatus": "READY"
-      },
-      {
-        "key": "21554d39-81ce-415a-9a65-523539073284.md",
-        "status": "REGISTERED",
-        "sizeBytes": 481,
-        "documentId": 6,
-        "documentStatus": "READY"
-      },
-      {
-        "key": "4c7da610-b87d-4007-a725-c6c0f9d5b468.md",
-        "status": "REGISTERED",
-        "sizeBytes": 481,
-        "documentId": 9,
-        "documentStatus": "READY"
-      },
-      {
-        "key": "b52d3861-257a-434d-9411-9cb85837c936.md",
-        "status": "REGISTERED",
-        "sizeBytes": 481,
-        "documentId": 10,
-        "documentStatus": "READY"
-      },
-      {
-        "key": "da37ff82-2d2e-452f-b000-5501d2d4fbd6.md",
-        "status": "REGISTERED",
-        "sizeBytes": 131,
-        "documentId": 12,
-        "documentStatus": "READY"
-      },
-      {
-        "key": "da7b7ca9-fd76-424b-a1d7-92cc2416a71e.md",
-        "status": "REGISTERED",
-        "sizeBytes": 481,
-        "documentId": 4,
-        "documentStatus": "READY"
-      },
-      {
-        "key": "dfda3684-af59-4637-a6de-d5065ca15f0d.md",
-        "status": "REGISTERED",
-        "sizeBytes": 481,
-        "documentId": 7,
-        "documentStatus": "READY"
-      },
-      {
-        "key": "e66fe502-9d5d-4552-ba25-c73a4acdef21.md",
-        "status": "REGISTERED",
-        "sizeBytes": 481,
-        "documentId": 5,
-        "documentStatus": "READY"
-      }
-    ]
-  },
   "swaggerVerified": true,
-  "pages": [
-    {
-      "generatedAt": "2026-09-04T13:05:36.148760833Z",
-      "knowledgeBaseId": 12,
-      "nextAfterId": 12,
-      "documents": [
-        {
-          "documentId": 11,
-          "documentStatus": "READY",
-          "activeVersion": 1,
-          "consistency": "OBSERVED",
-          "database": "OBSERVED",
-          "file": {
-            "status": "OK",
-            "expectedChunks": null,
-            "observedChunks": null,
-            "retainedOtherVersionPoints": null,
-            "missingChunkIds": []
-          },
-          "qdrant": {
-            "status": "OK",
-            "expectedChunks": 2,
-            "observedChunks": 2,
-            "retainedOtherVersionPoints": 0,
-            "missingChunkIds": []
-          },
-          "lucene": {
-            "status": "OK",
-            "expectedChunks": 2,
-            "observedChunks": 2,
-            "retainedOtherVersionPoints": 0,
-            "missingChunkIds": []
-          }
-        },
-        {
-          "documentId": 12,
-          "documentStatus": "READY",
-          "activeVersion": 1,
-          "consistency": "OBSERVED",
-          "database": "OBSERVED",
-          "file": {
-            "status": "OK",
-            "expectedChunks": null,
-            "observedChunks": null,
-            "retainedOtherVersionPoints": null,
-            "missingChunkIds": []
-          },
-          "qdrant": {
-            "status": "OK",
-            "expectedChunks": 2,
-            "observedChunks": 2,
-            "retainedOtherVersionPoints": 0,
-            "missingChunkIds": []
-          },
-          "lucene": {
-            "status": "OK",
-            "expectedChunks": 2,
-            "observedChunks": 2,
-            "retainedOtherVersionPoints": 0,
-            "missingChunkIds": []
-          }
-        }
-      ]
-    },
-    {
-      "generatedAt": "2026-09-04T13:05:36.226063282Z",
-      "knowledgeBaseId": 12,
-      "nextAfterId": null,
-      "documents": [
-        {
-          "documentId": 13,
-          "documentStatus": "READY",
-          "activeVersion": 1,
-          "consistency": "OBSERVED",
-          "database": "OBSERVED",
-          "file": {
-            "status": "OK",
-            "expectedChunks": null,
-            "observedChunks": null,
-            "retainedOtherVersionPoints": null,
-            "missingChunkIds": []
-          },
-          "qdrant": {
-            "status": "OK",
-            "expectedChunks": 2,
-            "observedChunks": 2,
-            "retainedOtherVersionPoints": 0,
-            "missingChunkIds": []
-          },
-          "lucene": {
-            "status": "OK",
-            "expectedChunks": 2,
-            "observedChunks": 2,
-            "retainedOtherVersionPoints": 0,
-            "missingChunkIds": []
-          }
-        }
-      ]
-    }
-  ],
-  "modelCallsAfter": 44
+  "modelCallsBefore": 44
 }

@@ -85,6 +85,10 @@ public class QdrantIndex {
                 .retrieve().body(JsonNode.class);
     }
 
+    public JsonNode collections() {
+        return client.get().uri("/collections").retrieve().body(JsonNode.class);
+    }
+
     public void upsert(List<Map<String, Object>> points) {
         String path = "/collections/" + collection;
         try {

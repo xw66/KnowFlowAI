@@ -31,10 +31,12 @@
 
 向量点扫描：`GET /api/admin/reconcile/documents/vectors?collection=knowflow_<collection-id>&limit=100&offset=`。必须显式指定集合，按 Qdrant 游标分页，读取定位 payload 而不读取向量值。`REGISTERED_ACTIVE` 表示当前文档和版本匹配，`ORPHAN` 表示文档不存在，`RETAINED` 表示旧版本、已删除文档或其他集合中的保留点；无效 payload 和服务故障分别报告。该扫描不遍历未指定的集合，也不执行清理。
 
+集合登记扫描：`GET /api/admin/reconcile/documents/vectors/collections`。它比较 Qdrant 的集合名称和 MySQL 的 `vector_collection` 登记，不读取点内容；未登记集合标为 `ORPHAN_COLLECTION`，登记但外部不存在标为 `MISSING_COLLECTION`。这些状态只生成报告，不能直接作为删除授权。
+
 ## 自动验证
 
 专项命令：`./mvnw.cmd '-Dtest=ReconcileTests,VectorTests#externalReconciliation*,VectorTests#vectorOrphanScanClassifiesMissingDocumentsAndCurrentPoints' test`。覆盖真实 MySQL 权限及分页、真实 Qdrant 身份不一致、暂停恢复和孤立点分类、Lucene 提交缺失、文件摘要变化、删除保留、并发版本变化、检查上限和文件目录分页分类；异常响应结构使用本地替身验证。
 
 完整回归使用 `./mvnw.cmd verify`。Surefire 通过 `KNOWFLOW_CONFIG_IMPORT` 将导入目标设为受版本控制的 `isolated-test.properties`，避免本地 `.env` 的备用模型开关等配置污染普通测试。将 `spring.config.import` 系统属性置空不足以阻止配置文件自身的导入声明，因此直接参数化导入位置。此前的完整回归曾因此多调用一次本地替身，失败断言保留；不放宽调用次数要求。IDE 中应通过该 Maven 命令运行相同验收配置。显式 `LiveFallbackIT` 自行读取 `.env`，仍属独立付费联调，不会进入普通回归。
 
-2026-09-04：最终 JDK 25 `verify` 通过 259 项测试（0 失败、0 跳过），日志 `target/vector-orphan-regression.log`。API/Worker 镜像重建和保留数据重启后，生产 Nginx 入口的 3 篇合成文档分为 2 页，文件、Qdrant 和 Lucene 均为 OK，直属目录扫描返回 11 项，指定向量集合扫描返回 46 项，Swagger 路径存在；模型调用账本仍为 44 条，没有新增模型调用。临时验收账号已撤销管理员权限并禁用。脱敏响应见 [生产验收记录](validation/2026-09-04-external-reconciliation.json)。
+2026-09-04：最终 JDK 25 `verify` 通过 260 项测试（0 失败、0 跳过），日志 `target/collection-reconcile-regression.log`。API/Worker 镜像重建和保留数据重启后，生产 Nginx 入口的 3 篇合成文档分为 2 页，文件、Qdrant 和 Lucene 均为 OK，直属目录扫描返回 11 项，指定向量集合扫描返回 46 项，集合登记扫描通过，Swagger 路径存在；模型调用账本仍为 44 条，没有新增模型调用。临时验收账号已撤销管理员权限并禁用。脱敏响应见 [生产验收记录](validation/2026-09-04-external-reconciliation.json)。

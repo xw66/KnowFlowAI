@@ -124,6 +124,30 @@ public class ExternalReconcileController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new VectorPage(Instant.now(),"OK",next,List.copyOf(results)));
     }
 
+    @GetMapping("/vectors/collections")
+    @io.swagger.v3.oas.annotations.Operation(summary="核对 Qdrant 集合登记",description="管理员只读比较 Qdrant 实际集合与 MySQL 文档登记的集合；不删除集合、不扫描集合内容。ORPHAN_COLLECTION、MISSING_COLLECTION 仅生成运维报告。")
+    public ResponseEntity<CollectionPage> collections() {
+        if(vector.getIfAvailable()==null) return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new CollectionPage(Instant.now(),"NOT_CONFIGURED",List.of()));
+        final tools.jackson.databind.JsonNode response;
+        try { response=vector.getObject().collections(); }
+        catch(Exception error) { return ResponseEntity.status(503).cacheControl(CacheControl.noStore())
+                .body(new CollectionPage(Instant.now(),"UNAVAILABLE",List.of())); }
+        if(response==null || !"ok".equals(response.path("status").asText()) || !response.path("result").path("collections").isArray())
+            return ResponseEntity.status(503).cacheControl(CacheControl.noStore()).body(new CollectionPage(Instant.now(),"UNAVAILABLE",List.of()));
+        var registered=jdbc.sql("SELECT DISTINCT vector_collection FROM document WHERE vector_collection IS NOT NULL")
+                .query(String.class).list().stream().collect(java.util.stream.Collectors.toSet());
+        var names=new java.util.HashSet<String>();
+        var result=new ArrayList<CollectionCheck>();
+        for(var collection:response.path("result").path("collections")) {
+            String name=collection.path("name").asText(); names.add(name);
+            result.add(new CollectionCheck(name,registered.contains(name)?"REGISTERED":"ORPHAN_COLLECTION"));
+        }
+        for(var name:registered) if(!names.contains(name)) result.add(new CollectionCheck(name,"MISSING_COLLECTION"));
+        result.sort(java.util.Comparator.comparing(CollectionCheck::name));
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new CollectionPage(Instant.now(),"OK",List.copyOf(result)));
+    }
+
     private Check checkFile(Snapshot doc) {
         try {
             String digest=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(storage.read(doc.storageKey())));
@@ -195,6 +219,8 @@ public class ExternalReconcileController {
     public record FileResult(String key,String status,Long sizeBytes,Long documentId,String documentStatus) {}
     public record VectorPage(Instant generatedAt,String scanStatus,String nextOffset,List<VectorPoint> points) {}
     public record VectorPoint(String pointId,Long documentId,Long knowledgeBaseId,Integer indexVersion,String status) {}
+    public record CollectionPage(Instant generatedAt,String scanStatus,List<CollectionCheck> collections) {}
+    public record CollectionCheck(String name,String status) {}
     private record Chunk(long id,int chunkIndex) {}
     private record Snapshot(long id,String status,int indexVersion,Integer activeIndexVersion,String vectorCollection,String storageKey,String sha256,Integer bm25Version,String instanceId,String bm25Status) {}
     private record DocumentRef(long id,String status) {}

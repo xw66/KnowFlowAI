@@ -1107,6 +1107,23 @@ class VectorTests {
     }
 
     @Test
+    void collectionScanReportsQdrantCollectionWithoutDatabaseRegistration() {
+        String extra="knowflow_0123456789abcdef0123456789abcdef";
+        var client=RestClient.create("http://"+QDRANT.getHost()+":"+QDRANT.getMappedPort(6333));
+        client.put().uri("/collections/"+extra).body(Map.of("vectors",Map.of("size",3,"distance","Cosine"))).retrieve().toBodilessEntity();
+        try {
+            long task=seed(1); processor.processNext();
+            long document=jdbc.sql("SELECT document_id FROM document_task WHERE id=:id").param("id",task).query(Long.class).single();
+            jdbc.sql("UPDATE document SET status='READY',active_index_version=1,vector_collection=:collection WHERE id=:id")
+                    .param("collection",index.collection()).param("id",document).update();
+            var page=reconciliation.collections().getBody();
+            assertThat(page.scanStatus()).isEqualTo("OK");
+            assertThat(page.collections()).anyMatch(item -> item.name().equals(extra) && item.status().equals("ORPHAN_COLLECTION"));
+            assertThat(page.collections()).anyMatch(item -> item.name().equals(index.collection()) && item.status().equals("REGISTERED"));
+        } finally { client.delete().uri("/collections/"+extra).retrieve().toBodilessEntity(); }
+    }
+
+    @Test
     void externalReconciliationMarksConcurrentVersionChangeAndRetainsDeletedIndexes() {
         long task=seed(1); processor.processNext(); indexAllBm25();
         long doc=jdbc.sql("SELECT document_id FROM document_task WHERE id=:id").param("id",task).query(Long.class).single();
