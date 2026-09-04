@@ -86,8 +86,9 @@ function percentile(values, fraction) {
 function summarize(kind, count, concurrency, samples, elapsedMs) {
   const durations = samples.map(sample => sample.durationMs)
   const errors = samples.filter(sample => sample.status < 200 || sample.status >= 300).length
+  const statusCounts = Object.fromEntries([...new Set(samples.map(sample => sample.status))].sort().map(status => [status, samples.filter(sample => sample.status === status).length]))
   const totalMs = durations.reduce((sum, value) => sum + value, 0)
-  return { kind, concurrency, requests: count, errors, errorRate: errors / count, throughputPerSecond: count / (Math.max(elapsedMs, 1) / 1000), p50Ms: percentile(durations, .5), p95Ms: percentile(durations, .95), p99Ms: percentile(durations, .99), meanMs: totalMs / count, wallTimeMs: elapsedMs }
+  return { kind, concurrency, requests: count, errors, errorRate: errors / count, statusCounts, throughputPerSecond: count / (Math.max(elapsedMs, 1) / 1000), p50Ms: percentile(durations, .5), p95Ms: percentile(durations, .95), p99Ms: percentile(durations, .99), meanMs: totalMs / count, wallTimeMs: elapsedMs }
 }
 
 const context = await setup()
