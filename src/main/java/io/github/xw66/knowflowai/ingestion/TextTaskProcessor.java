@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.UUID;
 
 import io.github.xw66.knowflowai.document.DocumentStorage;
+import io.github.xw66.knowflowai.document.TaskCache;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -23,11 +24,13 @@ public class TextTaskProcessor {
     private final JdbcClient jdbc;
     private final DocumentStorage storage;
     private final TransactionTemplate transaction;
+    private final TaskCache cache;
 
-    public TextTaskProcessor(JdbcClient jdbc, DocumentStorage storage, PlatformTransactionManager manager) {
+    public TextTaskProcessor(JdbcClient jdbc, DocumentStorage storage, PlatformTransactionManager manager, TaskCache cache) {
         this.jdbc = jdbc;
         this.storage = storage;
         this.transaction = new TransactionTemplate(manager);
+        this.cache = cache;
     }
 
     @Scheduled(fixedDelayString = "${app.processing.poll-delay:1000}",
@@ -48,17 +51,19 @@ public class TextTaskProcessor {
             if (selected.isEmpty()) return null;
             Task value = selected.get();
             if (value.attempts() >= value.maxAttempts()) {
-                jdbc.sql("UPDATE document_task SET status = 'FAILED', error_code = 'RETRY_EXHAUSTED', lease_token = NULL, lease_until = NULL, finished_at = CURRENT_TIMESTAMP(6) WHERE id = :id")
+                jdbc.sql("UPDATE document_task SET cache_version=cache_version+1, status = 'FAILED', error_code = 'RETRY_EXHAUSTED', lease_token = NULL, lease_until = NULL, finished_at = CURRENT_TIMESTAMP(6) WHERE id = :id")
                         .param("id", value.id()).update();
+                cache.invalidateAfterChange(value.id());
                 jdbc.sql("UPDATE document SET status = IF(active_index_version IS NULL, 'FAILED', 'READY') WHERE id = :id AND status <> 'DELETED'").param("id", value.documentId()).update();
                 return null;
             }
             jdbc.sql("""
-                    UPDATE document_task SET status = 'PROCESSING', stage = 'PARSING', attempts = attempts + 1,
+                    UPDATE document_task SET cache_version=cache_version+1, status = 'PROCESSING', stage = 'PARSING', attempts = attempts + 1,
                         lease_token = :token, lease_until = TIMESTAMPADD(SECOND, 60, CURRENT_TIMESTAMP(6)),
                         started_at = COALESCE(started_at, CURRENT_TIMESTAMP(6)), next_attempt_at = NULL
                     WHERE id = :id
                     """).param("token", token).param("id", value.id()).update();
+            cache.invalidateAfterChange(value.id());
             jdbc.sql("UPDATE document SET status = IF(active_index_version IS NULL, 'PROCESSING', 'READY') WHERE id = :id AND status <> 'DELETED'").param("id", value.documentId()).update();
             return value;
         });
@@ -81,21 +86,23 @@ public class TextTaskProcessor {
                             .param("paragraph", chunk.paragraphNumber()).param("page", chunk.pageNumber(), java.sql.Types.INTEGER)
                             .param("content", chunk.content()).update();
                 }
-                jdbc.sql("UPDATE document_task SET status = 'PENDING', stage = 'CHUNKED', lease_token = NULL, lease_until = NULL, error_code = NULL, error_message = NULL WHERE id = :id")
+                jdbc.sql("UPDATE document_task SET cache_version=cache_version+1, status = 'PENDING', stage = 'CHUNKED', lease_token = NULL, lease_until = NULL, error_code = NULL, error_message = NULL WHERE id = :id")
                         .param("id", task.id()).update();
+                cache.invalidateAfterChange(task.id());
             });
         } catch (IOException | IllegalArgumentException exception) {
             transaction.executeWithoutResult(status -> {
                 if (!ownsLease(task, token)) return;
                 boolean failed = exception instanceof IllegalArgumentException || task.attempts() + 1 >= task.maxAttempts();
                 jdbc.sql("""
-                        UPDATE document_task SET status = :status, error_code = :error, error_message = NULL,
+                        UPDATE document_task SET cache_version=cache_version+1, status = :status, error_code = :error, error_message = NULL,
                           lease_token = NULL, lease_until = NULL,
                           next_attempt_at = IF(:failed, NULL, TIMESTAMPADD(SECOND, 10, CURRENT_TIMESTAMP(6))),
                           finished_at = IF(:failed, CURRENT_TIMESTAMP(6), NULL) WHERE id = :id
                         """).param("status", failed ? "FAILED" : "RETRY_WAIT")
                         .param("error", exception instanceof IllegalArgumentException ? "INVALID_CONTENT" : "FILE_READ_FAILED")
                         .param("failed", failed).param("id", task.id()).update();
+                cache.invalidateAfterChange(task.id());
                 if (failed) jdbc.sql("UPDATE document SET status = IF(active_index_version IS NULL, 'FAILED', 'READY') WHERE id = :id AND status <> 'DELETED'").param("id", task.documentId()).update();
             });
             LoggerFactory.getLogger(getClass()).atWarn().addKeyValue("taskId", task.id()).log("文档解析失败，已记录任务状态");

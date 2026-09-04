@@ -1,0 +1,1 @@
+ALTER TABLE knowledge_base ADD COLUMN cache_version BIGINT NOT NULL DEFAULT 1;

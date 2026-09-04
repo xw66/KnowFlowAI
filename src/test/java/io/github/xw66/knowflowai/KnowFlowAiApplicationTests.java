@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
+        properties = {"app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", "app.cache.enabled=false", "app.rate-limit.enabled=false", "management.health.redis.enabled=false"})
 @Import(KnowFlowAiApplicationTests.DatabaseConfiguration.class)
 @ActiveProfiles("test")
 class KnowFlowAiApplicationTests {
@@ -72,6 +72,8 @@ class KnowFlowAiApplicationTests {
         assertThat(upload.path("parameters")).anyMatch(parameter -> parameter.path("name").asText().equals("Idempotency-Key"));
         var search = api.path("paths").path("/api/knowledge-bases/{id}/search").path("post");
         assertThat(search.path("parameters")).noneMatch(parameter -> parameter.path("name").asText().equals("account"));
+        assertThat(search.at("/responses/200/headers").has("X-Rerank-Status")).isTrue();
+        assertThat(search.at("/responses/200/content")).anyMatch(content -> content.at("/schema/type").asText().equals("array"));
         assertThat(api.path("paths").has("/actuator/health")).isFalse();
         assertThat(get("/swagger-ui/index.html").statusCode()).isEqualTo(200);
         assertThat(get("/swagger-ui/swagger-ui-bundle.js").statusCode()).isEqualTo(200);
@@ -102,6 +104,16 @@ class KnowFlowAiApplicationTests {
         var schemas=api.at("/components/schemas");
         assertThat(schemas.at("/SearchRequest/properties/query/maxLength").asInt()).isEqualTo(2000);
         assertThat(schemas.at("/SearchRequest/properties/topK/maximum").asInt()).isEqualTo(20);
+        assertThat(schemas.at("/AnswerRequest/properties/topK/maximum").asInt()).isEqualTo(8);
+        assertThat(schemas.at("/AnswerRequest/properties/question/maxLength").asInt()).isEqualTo(2000);
+        assertThat(api.path("paths").has("/api/knowledge-bases/{id}/answers")).isTrue();
+        assertThat(api.path("paths").has("/api/conversations")).isTrue();
+        assertThat(api.path("paths").has("/api/conversations/{id}/messages")).isTrue();
+        assertThat(schemas.at("/AnswerRequest/properties/conversationId/format").asText()).isEqualTo("int64");
+        assertThat(schemas.at("/AnswerRequest/properties/rewrite/type").asText()).isEqualTo("boolean");
+        assertThat(api.path("paths").path("/api/knowledge-bases/{id}/answers/stream")
+                .at("/post/responses/200/content").has("text/event-stream")).isTrue();
+        assertThat(schemas.at("/SearchRequest/properties/mode/enum")).extracting(node -> node.asText()).containsExactly("VECTOR","BM25","HYBRID");
         assertThat(schemas.at("/DocumentView/properties/id/format").asText()).isEqualTo("int64");
         assertThat(schemas.at("/DocumentView/properties/createdAt/format").asText()).isEqualTo("date-time");
     }

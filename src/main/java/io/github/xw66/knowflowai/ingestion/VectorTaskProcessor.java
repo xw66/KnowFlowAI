@@ -14,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import io.github.xw66.knowflowai.document.TaskCache;
 
 @Component
 @Profile("worker")
@@ -24,14 +25,16 @@ public class VectorTaskProcessor {
     private final QdrantIndex index;
     private final TransactionTemplate transaction;
     private final int dimensions;
+    private final TaskCache cache;
 
     public VectorTaskProcessor(JdbcClient jdbc, EmbeddingModel model, QdrantIndex index,
-            PlatformTransactionManager manager, @Value("${app.embedding.dimensions}") int dimensions) {
+            PlatformTransactionManager manager, @Value("${app.embedding.dimensions}") int dimensions, TaskCache cache) {
         this.jdbc = jdbc;
         this.model = model;
         this.index = index;
         this.transaction = new TransactionTemplate(manager);
         this.dimensions = dimensions;
+        this.cache = cache;
     }
 
     @Scheduled(fixedDelayString = "${app.vector.poll-delay:1000}", initialDelayString = "${app.vector.initial-delay:1000}")
@@ -52,16 +55,18 @@ public class VectorTaskProcessor {
             if (selected.isEmpty()) return null;
             var value = selected.get();
             if (value.vectorAttempts() >= value.maxAttempts()) {
-                jdbc.sql("UPDATE document_task SET status = 'FAILED', error_code = 'VECTOR_RETRY_EXHAUSTED', lease_token = NULL, lease_until = NULL, finished_at = CURRENT_TIMESTAMP(6) WHERE id = :id")
+                jdbc.sql("UPDATE document_task SET cache_version=cache_version+1, status = 'FAILED', error_code = 'VECTOR_RETRY_EXHAUSTED', lease_token = NULL, lease_until = NULL, finished_at = CURRENT_TIMESTAMP(6) WHERE id = :id")
                         .param("id", value.id()).update();
+                cache.invalidateAfterChange(value.id());
                 jdbc.sql("UPDATE document SET status = IF(active_index_version IS NULL, 'FAILED', 'READY') WHERE id = :id AND status <> 'DELETED'").param("id", value.documentId()).update();
                 return null;
             }
             jdbc.sql("""
-                    UPDATE document_task SET status = 'PROCESSING', stage = 'INDEXING', vector_attempts = vector_attempts + 1,
+                    UPDATE document_task SET cache_version=cache_version+1, status = 'PROCESSING', stage = 'INDEXING', vector_attempts = vector_attempts + 1,
                         vector_collection = :collection, lease_token = :token,
                         lease_until = TIMESTAMPADD(SECOND, 90, CURRENT_TIMESTAMP(6)), next_attempt_at = NULL WHERE id = :id
                     """).param("collection", index.collection()).param("token", token).param("id", value.id()).update();
+            cache.invalidateAfterChange(value.id());
             return value;
         });
         if (task == null) return;
@@ -98,11 +103,12 @@ public class VectorTaskProcessor {
                 boolean complete = !jdbc.sql("SELECT EXISTS(SELECT 1 FROM document_chunk WHERE document_id = :id AND index_version = :version AND chunk_index > :cursor)")
                         .param("id", task.documentId()).param("version", task.indexVersion()).param("cursor", cursor).query(Boolean.class).single();
                 jdbc.sql("""
-                        UPDATE document_task SET vector_cursor = :cursor, vector_attempts = 0, status = :status, stage = :stage,
+                        UPDATE document_task SET cache_version=cache_version+1, vector_cursor = :cursor, vector_attempts = 0, status = :status, stage = :stage,
                           lease_token = NULL, lease_until = NULL, error_code = NULL,
                           finished_at = IF(:complete, CURRENT_TIMESTAMP(6), NULL) WHERE id = :id
                         """).param("cursor", cursor).param("status", complete ? "SUCCEEDED" : "PENDING")
                         .param("stage", complete ? "INDEXED" : "CHUNKED").param("complete", complete).param("id", task.id()).update();
+                cache.invalidateAfterChange(task.id());
                 if (complete) jdbc.sql("UPDATE document SET status = 'READY', active_index_version = :version, vector_collection = :collection WHERE id = :id AND status <> 'DELETED' AND index_version = :version")
                         .param("version", task.indexVersion()).param("collection", index.collection()).param("id", task.documentId()).update();
             });
@@ -112,10 +118,11 @@ public class VectorTaskProcessor {
                 if (!owns(task.id(), token)) return;
                 boolean failed = task.vectorAttempts() + 1 >= task.maxAttempts();
                 jdbc.sql("""
-                        UPDATE document_task SET status = :status, error_code = 'VECTOR_WRITE_FAILED', lease_token = NULL, lease_until = NULL,
+                        UPDATE document_task SET cache_version=cache_version+1, status = :status, error_code = 'VECTOR_WRITE_FAILED', lease_token = NULL, lease_until = NULL,
                           next_attempt_at = IF(:failed, NULL, TIMESTAMPADD(SECOND, 10, CURRENT_TIMESTAMP(6))),
                           finished_at = IF(:failed, CURRENT_TIMESTAMP(6), NULL) WHERE id = :id
                         """).param("status", failed ? "FAILED" : "RETRY_WAIT").param("failed", failed).param("id", task.id()).update();
+                cache.invalidateAfterChange(task.id());
                 if (failed) jdbc.sql("UPDATE document SET status = IF(active_index_version IS NULL, 'FAILED', 'READY') WHERE id = :id AND status <> 'DELETED'").param("id", task.documentId()).update();
             });
             org.slf4j.LoggerFactory.getLogger(getClass()).atWarn().addKeyValue("taskId", task.id())

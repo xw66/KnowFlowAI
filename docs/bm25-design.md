@@ -1,6 +1,6 @@
 # BM25 增量实施设计
 
-本文件是下一增量的实现约束，尚不表示 BM25 已交付。
+本文件记录 BM25 增量的实现约束；当前验证状态以 roadmap.md 为准。
 
 沿用一个制品、API 与 Worker 两个进程。新增 Lucene core 和 analysis-common，采用 CJKAnalyzer 与 BM25Similarity；不接入新的搜索服务，不改动现有 Embedding 模型空间。
 
@@ -8,7 +8,7 @@
 
 - `retrieval/LuceneIndex`：共享目录中的索引读写；仅 Worker 持有 IndexWriter，API 只读已提交数据。
 - `ingestion/Bm25TaskProcessor`：从 MySQL 的已激活文档分块建立索引，提交成功后再记录索引进度。
-- `bm25_index_progress`：文档、索引版本、索引实例标识、提交时间、错误与重试状态。迁移随实现增加。
+- `bm25_index_progress`：V10 迁移，文档、索引版本、索引实例标识、提交时间、错误与重试状态。
 - `app.bm25.*`：启用开关及共享目录。默认关闭，启用时 API 与 Worker 使用同一持久化目录。
 
 Lucene 提交元数据保存索引实例标识。空目录创建新实例，旧 MySQL 进度不能使新实例误判为已就绪；Worker 根据 MySQL 分块重建。文件锁限制同一目录只能有一个 Writer，不能以删除锁文件绕过限制。

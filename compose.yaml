@@ -1,6 +1,19 @@
 name: knowflow-ai
 
 services:
+  redis:
+    image: redis:8.2.9-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   mysql:
     image: mysql:8.4.8
     environment:
@@ -61,6 +74,7 @@ services:
       retries: 20
 
 volumes:
+  redis-data:
   mysql-data:
   kafka-data:
   qdrant-data:

@@ -38,6 +38,10 @@ import static org.assertj.core.api.Assertions.*;
 
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={
         "spring.main.web-application-type=servlet", "app.bm25.enabled=true", "app.embedding.enabled=false",
+        "app.rerank.enabled=false",
+        "app.chat.enabled=false",
+        "app.cache.enabled=false",
+        "app.rate-limit.enabled=false", "management.health.redis.enabled=false",
         "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
         "app.bm25.initial-delay=3600000", "app.outbox.initial-delay=3600000", "app.processing.initial-delay=3600000",
         "app.cleanup.initial-delay=3600000", "spring.kafka.listener.auto-startup=false", "spring.kafka.admin.auto-create=false"})
@@ -52,6 +56,7 @@ class Bm25Tests {
     @Autowired LuceneIndex index;
     @Autowired Bm25TaskProcessor processor;
     @Autowired SearchService search;
+    @Autowired io.github.xw66.knowflowai.chat.AnswerService answers;
     @Autowired DocumentService documents;
     @Autowired KnowledgeBaseService bases;
     @Autowired PlatformTransactionManager manager;
@@ -66,6 +71,8 @@ class Bm25Tests {
 
     @Test void chineseSearchReturnsReferencesAndFiltersKnowledgeBase() throws Exception {
         var first=seed("员工报销流程需要提交发票。");
+        assertThatThrownBy(()->answers.answer(first.user(),first.base(),"报销",4,SearchService.Mode.BM25,false))
+                .isInstanceOfSatisfying(ResponseStatusException.class,error->assertThat(error.getStatusCode().value()).isEqualTo(503));
         var second=seed("保密报销流程需要提交合同。");
         processor.processNext(); processor.processNext();
         var hits=search.search(first.user(),first.base(),"报销流程",5,SearchService.Mode.BM25);
@@ -83,6 +90,7 @@ class Bm25Tests {
         assertThat(request(0,first.base(),"{\"query\":\"报销\",\"mode\":\"BM25\"}").statusCode()).isEqualTo(401);
         assertThat(request(second.user(),first.base(),"{\"query\":\"报销\",\"mode\":\"BM25\"}").statusCode()).isEqualTo(404);
         assertThat(request(first.user(),first.base(),"{\"query\":\"报销\"}").statusCode()).isEqualTo(503);
+        assertThat(request(first.user(),first.base(),"{\"query\":\"报销\",\"mode\":\"HYBRID\"}").statusCode()).isEqualTo(503);
     }
 
     @Test void luceneCommitAloneCannotPublishContentAndReplayDoesNotDuplicate() throws Exception {
@@ -243,7 +251,7 @@ class Bm25Tests {
     private SearchService service(LuceneIndex reader) {
         var factory=new StaticListableBeanFactory(Map.of("reader",reader));
         return new SearchService(jdbc,bases,factory.getBeanProvider(EmbeddingModel.class),factory.getBeanProvider(QdrantIndex.class),
-                factory.getBeanProvider(LuceneIndex.class),manager);
+                factory.getBeanProvider(LuceneIndex.class),factory.getBeanProvider(io.github.xw66.knowflowai.retrieval.RerankClient.class),manager);
     }
     private List<LuceneIndex.Chunk> chunks(long document, int version) {
         return jdbc.sql("SELECT id,content FROM document_chunk WHERE document_id=:id AND index_version=:version ORDER BY chunk_index")

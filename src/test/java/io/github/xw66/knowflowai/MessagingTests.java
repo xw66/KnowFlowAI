@@ -44,12 +44,17 @@ import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.main.web-application-type=servlet", "app.outbox.initial-delay=3600000", "app.processing.initial-delay=3600000", "app.embedding.enabled=false",
+        "app.bm25.enabled=false",
+        "app.rerank.enabled=false",
+        "app.chat.enabled=false",
+        "app.cache.enabled=true",
+        "app.rate-limit.enabled=false",
         "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
         "spring.kafka.producer.properties.delivery.timeout.ms=2000",
         "spring.kafka.producer.properties.request.timeout.ms=1000",
         "spring.kafka.producer.properties.max.block.ms=1000"})
 @ActiveProfiles({"api", "worker"})
-@Import({KnowFlowAiApplicationTests.DatabaseConfiguration.class, MessagingTests.KafkaConfiguration.class})
+@Import({KnowFlowAiApplicationTests.DatabaseConfiguration.class, MessagingTests.KafkaConfiguration.class, KnowledgeBaseTests.RedisConfiguration.class})
 class MessagingTests {
     private static final String TOPIC = "knowflow.document.uploaded";
     private static final String DLT = TOPIC + ".DLT";
@@ -86,19 +91,31 @@ class MessagingTests {
     private ObjectMapper mapper;
     @Autowired
     private io.github.xw66.knowflowai.ingestion.TextTaskProcessor processor;
+    @Autowired
+    private io.github.xw66.knowflowai.document.DocumentService documents;
+    @Autowired
+    private org.springframework.data.redis.core.StringRedisTemplate redis;
 
     @Test
     void textTaskIsChunkedAtomicallyAndReplayDoesNotReprocess() throws Exception {
         var task = upload();
+        assertThat(taskView(task.id()).stage()).isNull();
+        assertThat(redis.hasKey("knowflow:task:v1:" + task.id() + ":1")).isTrue();
         publisher.publishNext();
         awaitQueued(task.id());
+        assertThat(taskView(task.id()).stage()).isEqualTo("QUEUED");
+        await().atMost(Duration.ofSeconds(2)).until(() -> !Boolean.TRUE.equals(redis.hasKey("knowflow:task:v1:" + task.id() + ":1")));
         processUntilClaimed(task.id());
+        assertThat(taskView(task.id()).stage()).isEqualTo("CHUNKED");
+        assertThat(redis.hasKey("knowflow:task:v1:" + task.id() + ":2")).isFalse();
+        assertThat(taskVersion(task.id())).isEqualTo(4);
         assertThat(jdbc.sql("SELECT stage FROM document_task WHERE id = :id").param("id", task.id()).query(String.class).single()).isEqualTo("CHUNKED");
         assertThat(jdbc.sql("SELECT content FROM document_chunk c JOIN document_task t ON t.document_id = c.document_id WHERE t.id = :id")
                 .param("id", task.id()).query(String.class).single()).isEqualTo("测试知识文档");
         var replay = kafka.send(TOPIC, Long.toString(task.id()), task.payload()).get(10, TimeUnit.SECONDS).getRecordMetadata();
         awaitCommitted(replay);
         processor.processNext();
+        assertThat(taskVersion(task.id())).isEqualTo(4);
         assertThat(jdbc.sql("SELECT attempts FROM document_task WHERE id = :id").param("id", task.id()).query(Integer.class).single()).isEqualTo(1);
     }
 
@@ -111,10 +128,14 @@ class MessagingTests {
         String key = jdbc.sql("SELECT d.storage_key FROM document d JOIN document_task t ON t.document_id = d.id WHERE t.id = :id")
                 .param("id", task.id()).query(String.class).single();
         Path file = directory.resolve(key);
+        taskView(task.id());
         byte[] original = java.nio.file.Files.readAllBytes(file);
         if (scenario.equals("missing")) java.nio.file.Files.delete(file);
         else java.nio.file.Files.writeString(file, "被修改的文件");
         processUntilClaimed(task.id());
+        assertThat(taskView(task.id()).status()).isEqualTo(scenario.equals("missing") ? "RETRY_WAIT" : "FAILED");
+        assertThat(taskVersion(task.id())).isEqualTo(4);
+        assertThat(redis.hasKey("knowflow:task:v1:" + task.id() + ":2")).isFalse();
         assertThat(jdbc.sql("SELECT status FROM document_task WHERE id = :id").param("id", task.id()).query(String.class).single())
                 .isEqualTo(scenario.equals("missing") ? "RETRY_WAIT" : "FAILED");
         java.nio.file.Files.write(file, original);
@@ -132,6 +153,16 @@ class MessagingTests {
             processor.processNext();
             assertThat(jdbc.sql("SELECT attempts FROM document_task WHERE id = :id").param("id", id).query(Integer.class).single()).isPositive();
         });
+    }
+
+    private io.github.xw66.knowflowai.document.DocumentService.TaskView taskView(long id) {
+        long user = jdbc.sql("SELECT d.uploaded_by FROM document d JOIN document_task t ON t.document_id=d.id WHERE t.id=:id")
+                .param("id", id).query(Long.class).single();
+        return documents.task(user, id);
+    }
+
+    private long taskVersion(long id) {
+        return jdbc.sql("SELECT cache_version FROM document_task WHERE id=:id").param("id", id).query(Long.class).single();
     }
 
     @ParameterizedTest
@@ -180,7 +211,10 @@ class MessagingTests {
         awaitQueued(exhausted.id());
         jdbc.sql("UPDATE document_task SET status = 'PROCESSING', stage = 'PARSING', attempts = max_attempts, lease_token = 'crashed', lease_until = TIMESTAMPADD(SECOND, -1, CURRENT_TIMESTAMP(6)) WHERE id = :id")
                 .param("id", exhausted.id()).update();
+        taskView(exhausted.id());
         processor.processNext();
+        assertThat(taskView(exhausted.id()).errorCode()).isEqualTo("RETRY_EXHAUSTED");
+        assertThat(redis.hasKey("knowflow:task:v1:" + exhausted.id() + ":2")).isFalse();
         assertThat(jdbc.sql("SELECT status FROM document_task WHERE id = :id").param("id", exhausted.id()).query(String.class).single()).isEqualTo("FAILED");
     }
 

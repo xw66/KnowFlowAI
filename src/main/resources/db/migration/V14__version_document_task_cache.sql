@@ -1,0 +1,1 @@
+ALTER TABLE document_task ADD COLUMN cache_version BIGINT NOT NULL DEFAULT 1;

@@ -35,13 +35,15 @@ public class DocumentService {
     private final KnowledgeBaseService knowledge;
     private final DocumentStorage storage;
     private final TransactionTemplate transaction;
+    private final TaskCache taskCache;
 
     public DocumentService(JdbcClient jdbc, KnowledgeBaseService knowledge, DocumentStorage storage,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager, TaskCache taskCache) {
         this.jdbc = jdbc;
         this.knowledge = knowledge;
         this.storage = storage;
         this.transaction = new TransactionTemplate(transactionManager);
+        this.taskCache = taskCache;
     }
 
     public UploadResponse upload(long userId, long knowledgeBaseId, String idempotencyKey, MultipartFile upload) {
@@ -106,19 +108,46 @@ public class DocumentService {
     }
 
     public TaskView task(long userId, long taskId) {
-        return jdbc.sql("""
+        if (!taskCache.usable()) return taskFromDatabase(userId, taskId);
+        var access = jdbc.sql("SELECT t.cache_version, t.status " + VISIBLE_TASKS)
+                .param("taskId", taskId).param("userId", userId).query(TaskAccess.class).optional()
+                .orElseThrow(DocumentService::taskNotFound);
+        // 终态直接从数据库返回，不能用缓存将完成或失败的任务退回进行中。
+        if (!TaskCache.active(access.status())) return taskFromDatabase(userId, taskId);
+        var cached = taskCache.get(taskId, access.cacheVersion());
+        if (cached != null) return cached;
+        var current = jdbc.sql(TASK_FIELDS + VISIBLE_TASKS + " AND t.cache_version=:version")
+                .param("taskId", taskId).param("userId", userId).param("version", access.cacheVersion())
+                .query(TaskView.class).optional();
+        if (current.isEmpty()) return taskFromDatabase(userId, taskId);
+        taskCache.put(taskId, access.cacheVersion(), current.get());
+        return current.get();
+    }
+
+    private static final String TASK_FIELDS = """
                 SELECT t.id AS task_id, d.id AS document_id, d.knowledge_base_id, d.name AS document_name,
                        t.status, t.stage, t.received_at, t.attempts, t.error_code, t.created_at, t.updated_at
+                """;
+    private static final String VISIBLE_TASKS = """
                 FROM document_task t JOIN document d ON d.id = t.document_id
                 JOIN knowledge_base kb ON kb.id = d.knowledge_base_id
                 JOIN knowledge_member km ON km.knowledge_base_id = kb.id
                 JOIN app_user u ON u.id = km.user_id
                 WHERE t.id = :taskId AND km.user_id = :userId AND u.status = 'ACTIVE'
                   AND kb.status = 'ACTIVE' AND d.status <> 'DELETED'
-                """)
+                """;
+
+    private TaskView taskFromDatabase(long userId, long taskId) {
+        return jdbc.sql(TASK_FIELDS + VISIBLE_TASKS)
                 .param("taskId", taskId).param("userId", userId).query(TaskView.class).optional()
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "任务不存在或无权访问"));
+                .orElseThrow(DocumentService::taskNotFound);
     }
+
+    private static ResponseStatusException taskNotFound() {
+        return new ResponseStatusException(HttpStatus.NOT_FOUND, "任务不存在或无权访问");
+    }
+
+    private record TaskAccess(long cacheVersion, String status) {}
 
     public java.util.List<DocumentView> list(long userId, long baseId, long afterId, int limit) {
         knowledge.get(userId, baseId);
@@ -163,11 +192,14 @@ public class DocumentService {
             jdbc.sql("UPDATE document SET status='DELETED', active_index_version=NULL WHERE id=:id")
                     .param("id", documentId).update();
             // 撤销任务租约，使删除前已开始的解析和向量写入无法提交成功状态。
+            var changedTasks = jdbc.sql("SELECT id FROM document_task WHERE document_id=:id AND status NOT IN ('SUCCEEDED','FAILED') FOR UPDATE")
+                    .param("id", documentId).query(Long.class).list();
             jdbc.sql("""
-                    UPDATE document_task SET status='FAILED', error_code='DOCUMENT_DELETED',
+                    UPDATE document_task SET cache_version=cache_version+1, status='FAILED', error_code='DOCUMENT_DELETED',
                       lease_token=NULL, lease_until=NULL, next_attempt_at=NULL, finished_at=CURRENT_TIMESTAMP(6)
                     WHERE document_id=:id AND status NOT IN ('SUCCEEDED','FAILED')
                     """).param("id", documentId).update();
+            changedTasks.forEach(taskCache::invalidateAfterChange);
             jdbc.sql("""
                     INSERT INTO vector_cleanup(document_id, collection_name)
                     SELECT id, vector_collection FROM document WHERE id=:id AND vector_collection IS NOT NULL

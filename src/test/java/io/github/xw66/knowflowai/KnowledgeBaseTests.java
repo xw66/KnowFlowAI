@@ -19,19 +19,36 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.containers.GenericContainer;
+import io.github.xw66.knowflowai.knowledge.KnowledgeBaseService;
 import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
-@Import(KnowFlowAiApplicationTests.DatabaseConfiguration.class)
+        properties = {"app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", "app.cache.enabled=true", "app.rate-limit.enabled=false"})
+@Import({KnowFlowAiApplicationTests.DatabaseConfiguration.class, KnowledgeBaseTests.RedisConfiguration.class})
 @ActiveProfiles("test")
 class KnowledgeBaseTests {
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class RedisConfiguration {
+        @Bean
+        @ServiceConnection(name = "redis")
+        GenericContainer<?> redisContainer() {
+            return new GenericContainer<>("redis:8.2.9-alpine").withExposedPorts(6379);
+        }
+    }
 
     @LocalServerPort
     private int port;
@@ -39,10 +56,119 @@ class KnowledgeBaseTests {
     private JdbcClient jdbcClient;
     @Autowired
     private ObjectMapper mapper;
+    @Autowired
+    private StringRedisTemplate redis;
+    @Autowired
+    private GenericContainer<?> redisContainer;
+    @Autowired
+    private KnowledgeBaseService service;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private Actor owner;
     private Actor member;
     private Actor outsider;
+
+    @Test
+    void cachesNameWithTtlButAlwaysReadsCurrentRoleAndMembership() throws Exception {
+        long id = create(owner, "缓存资料");
+        expect(grant(owner, id, member.id(), "EDITOR"), 204);
+        assertThat(service.get(owner.id(), id).name()).isEqualTo("缓存资料");
+        String key = cacheKey(id, 1);
+        assertThat(redis.opsForValue().get(key)).isEqualTo("缓存资料");
+        assertThat(redis.getExpire(key)).isBetween(1L, 300L);
+        assertThat(service.get(member.id(), id).role()).isEqualTo("EDITOR");
+        expect(grant(owner, id, member.id(), "VIEWER"), 204);
+        assertThat(service.get(member.id(), id).role()).isEqualTo("VIEWER");
+        expect(send(owner, "DELETE", base(id) + "/members/" + member.id(), ""), 204);
+        expect(send(member, "GET", base(id), ""), 404);
+        expect(send(outsider, "GET", base(id), ""), 404);
+        jdbcClient.sql("UPDATE app_user SET status = 'DISABLED' WHERE id = :id").param("id", owner.id()).update();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.get(owner.id(), id))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThat(redis.hasKey(key)).isTrue();
+    }
+
+    @Test
+    void renameInvalidatesAfterCommitAndLateOldFillCannotOverrideNewVersion() throws Exception {
+        long id = create(owner, "旧名称");
+        service.get(owner.id(), id);
+        var transaction = new TransactionTemplate(transactionManager);
+        transaction.executeWithoutResult(status -> {
+            service.rename(owner.id(), id, "新名称");
+            assertThat(redis.opsForValue().get(cacheKey(id, 1))).isEqualTo("旧名称");
+            assertThat(service.get(owner.id(), id).name()).isEqualTo("新名称");
+            assertThat(redis.hasKey(cacheKey(id, 2))).isFalse();
+        });
+        assertThat(redis.hasKey(cacheKey(id, 1))).isFalse();
+        // 模拟提交前的读取者在提交和失效之后才回填旧名称。
+        redis.opsForValue().set(cacheKey(id, 1), "旧名称", Duration.ofMinutes(5));
+        assertThat(service.get(owner.id(), id).name()).isEqualTo("新名称");
+        assertThat(redis.opsForValue().get(cacheKey(id, 2))).isEqualTo("新名称");
+    }
+
+    @Test
+    void rolledBackRenameNeverPublishesUncommittedName() throws Exception {
+        long id = create(owner, "已提交名称");
+        service.get(owner.id(), id);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            service.rename(owner.id(), id, "必须回滚");
+            assertThat(service.get(owner.id(), id).name()).isEqualTo("必须回滚");
+            assertThat(redis.hasKey(cacheKey(id, 2))).isFalse();
+            status.setRollbackOnly();
+        });
+        assertThat(service.get(owner.id(), id).name()).isEqualTo("已提交名称");
+        assertThat(redis.opsForValue().get(cacheKey(id, 1))).isEqualTo("已提交名称");
+        assertThat(redis.hasKey(cacheKey(id, 2))).isFalse();
+    }
+
+    @Test
+    void expiredCacheRefillsFromDatabase() throws Exception {
+        long id = create(owner, "过期资料");
+        service.get(owner.id(), id);
+        redis.expire(cacheKey(id, 1), Duration.ofMillis(1));
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(2))
+                .until(() -> !Boolean.TRUE.equals(redis.hasKey(cacheKey(id, 1))));
+        assertThat(service.get(owner.id(), id).name()).isEqualTo("过期资料");
+        assertThat(redis.opsForValue().get(cacheKey(id, 1))).isEqualTo("过期资料");
+    }
+
+    @Test
+    void redisReadWriteAndInvalidationFailuresDoNotFailDatabaseOperations() throws Exception {
+        long id = create(owner, "故障前");
+        service.get(owner.id(), id);
+        // 仅在隔离容器内拒绝缓存命令，同时保留 ACL 命令用于恢复。
+        assertThat(redisContainer.execInContainer("redis-cli", "ACL", "SETUSER", "default", "-get", "-set", "-del").getExitCode()).isZero();
+        try {
+            assertThat(service.get(owner.id(), id).name()).isEqualTo("故障前");
+            expect(send(owner, "PUT", base(id), json(Map.of("name", "故障后"))), 200);
+            assertThat(service.get(owner.id(), id).name()).isEqualTo("故障后");
+        } finally {
+            assertThat(redisContainer.execInContainer("redis-cli", "ACL", "SETUSER", "default", "+get", "+set", "+del").getExitCode()).isZero();
+        }
+        assertThat(redis.opsForValue().get(cacheKey(id, 1))).isEqualTo("故障前");
+        assertThat(service.get(owner.id(), id).name()).isEqualTo("故障后");
+        assertThat(redis.opsForValue().get(cacheKey(id, 2))).isEqualTo("故障后");
+    }
+
+    private static String cacheKey(long id, long version) {
+        return "knowflow:kb:name:v1:" + id + ":" + version;
+    }
+
+    @Test
+    void slowRedisTimesOutAndReturnsDatabaseName() throws Exception {
+        long id = create(owner, "超时回源");
+        service.get(owner.id(), id);
+        assertThat(redisContainer.execInContainer("redis-cli", "CLIENT", "PAUSE", "5000", "ALL").getExitCode()).isZero();
+        try {
+            long started = System.nanoTime();
+            assertThat(service.get(owner.id(), id).name()).isEqualTo("超时回源");
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(4));
+        } finally {
+            assertThat(redisContainer.execInContainer("redis-cli", "CLIENT", "UNPAUSE").getExitCode()).isZero();
+        }
+        assertThat(service.get(owner.id(), id).name()).isEqualTo("超时回源");
+    }
 
     @BeforeEach
     void createActors() throws Exception {

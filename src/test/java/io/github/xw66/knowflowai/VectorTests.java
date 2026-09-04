@@ -2,6 +2,7 @@ package io.github.xw66.knowflowai;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.UUID;
@@ -29,9 +30,15 @@ import static org.assertj.core.api.Assertions.assertThat;
         "app.embedding.enabled=true", "app.embedding.api-key=test-only", "app.embedding.model=test-embedding",
         "app.embedding.dimensions=3", "app.vector.initial-delay=3600000", "app.processing.initial-delay=3600000",
         "app.cleanup.initial-delay=3600000",
+        "app.bm25.enabled=true", "app.bm25.initial-delay=3600000",
+        "app.chat.enabled=true", "app.chat.api-key=test-only", "app.chat.model=test-chat", "app.chat.timeout=PT20S",
+        "app.chat.stream-deadline=PT8S",
+        "app.cache.enabled=true",
+        "app.rate-limit.enabled=true", "app.rate-limit.search=10000", "app.rate-limit.answer=10000",
+        "app.rerank.enabled=true", "app.rerank.api-key=test-only", "app.rerank.model=test-rerank", "app.rerank.timeout=PT2S",
         "spring.kafka.listener.auto-startup=false", "spring.kafka.admin.auto-create=false"})
 @ActiveProfiles({"worker", "api"})
-@Import(KnowFlowAiApplicationTests.DatabaseConfiguration.class)
+@Import({KnowFlowAiApplicationTests.DatabaseConfiguration.class, KnowledgeBaseTests.RedisConfiguration.class})
 class VectorTests {
     static final GenericContainer<?> QDRANT = new GenericContainer<>("qdrant/qdrant:v1.18.2").withExposedPorts(6333);
     static HttpServer server;
@@ -40,14 +47,85 @@ class VectorTests {
     static volatile String requestedPath;
     static volatile int calls;
     static volatile Runnable modelHook = () -> {};
+    static volatile Runnable rerankHook=() -> {};
+    static volatile int rerankStatus=200;
+    static volatile int rerankCalls;
+    static volatile JsonNode rerankRequest;
+    static volatile JsonNode chatRequest;
+    static volatile String chatOverride;
+    static volatile String chatFinish="stop";
+    static volatile Runnable chatHook=() -> {};
+    static volatile int chatCalls;
+    static volatile int chatStatus=200;
+    static volatile boolean chatUsage=true;
+    static volatile boolean streamOmitFinish;
+    static volatile boolean streamHold;
+    static volatile boolean streamDisconnected;
+    static volatile Runnable streamHook=()->{};
+    static volatile int rewriteCalls;
+    static volatile int rewriteStatus=200;
+    static volatile String rewriteOutput="{\"query\":\"报销由谁负责？\"}";
+    static volatile Runnable rewriteHook=()->{};
+    static volatile JsonNode rewriteRequest;
     static final ObjectMapper JSON = new ObjectMapper();
     @org.junit.jupiter.api.io.TempDir static java.nio.file.Path documentDirectory;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) throws Exception {
         registry.add("app.document.storage-directory", () -> documentDirectory.toString());
+        registry.add("app.bm25.directory", () -> documentDirectory.resolve("lucene").toString());
         QDRANT.start();
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
+        server.createContext("/v1/chat/completions",exchange -> {
+            chatCalls++;
+            chatRequest=JSON.readTree(exchange.getRequestBody().readAllBytes());
+            boolean rewriting=JSON.readTree(chatRequest.at("/messages/1/content").asText()).has("previousQuestion");
+            if(rewriting) { rewriteCalls++; rewriteRequest=chatRequest; rewriteHook.run(); }
+            if(chatRequest.path("stream").asBoolean()) {
+                exchange.getResponseHeaders().set("Content-Type","text/event-stream");
+                exchange.sendResponseHeaders(chatStatus,0);
+                try {
+                    String text=chatOverride==null?"原文说明[C1]":chatOverride;
+                    var output=exchange.getResponseBody();
+                    for(String part:java.util.List.of(text.substring(0,Math.min(2,text.length())),text.substring(Math.min(2,text.length())))) {
+                        output.write(streamChunk(part,null).getBytes(StandardCharsets.UTF_8)); output.flush();
+                        streamHook.run();
+                        while(streamHold) {
+                            output.write(": waiting\n\n".getBytes(StandardCharsets.UTF_8)); output.flush();
+                            try { Thread.sleep(100); } catch(InterruptedException error) { Thread.currentThread().interrupt(); break; }
+                        }
+                    }
+                    if(!streamOmitFinish) {
+                        output.write(streamChunk("",chatFinish).getBytes(StandardCharsets.UTF_8));
+                        output.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8)); output.flush();
+                    }
+                } catch(java.io.IOException error) { streamDisconnected=true; }
+                finally { exchange.close(); }
+                return;
+            }
+            var evidence=JSON.readTree(chatRequest.at("/messages/1/content").asText()).at("/evidence/0");
+            String content=rewriting ? rewriteOutput : chatOverride!=null ? chatOverride : JSON.writeValueAsString(Map.of("answer","原文说明[C1]",
+                    "citations",java.util.List.of(Map.of("id","C1","quote",evidence.path("content").asText()))));
+            if(!rewriting) chatHook.run();
+            var result=new java.util.LinkedHashMap<String,Object>();
+            result.put("id","test-answer"); result.put("object","chat.completion"); result.put("created",1); result.put("model","test-chat");
+            result.put("choices",java.util.List.of(Map.of("index",0,"message",Map.of("role","assistant","content",content),"finish_reason",chatFinish)));
+            if(chatUsage) result.put("usage",Map.of("prompt_tokens",20,"completion_tokens",10,"total_tokens",30));
+            byte[] body=JSON.writeValueAsBytes(result);
+            exchange.getResponseHeaders().set("Content-Type","application/json");
+            exchange.sendResponseHeaders(rewriting?rewriteStatus:chatStatus,body.length); exchange.getResponseBody().write(body); exchange.close();
+        });
+        server.createContext("/rerank",exchange -> {
+            rerankCalls++;
+            rerankRequest=JSON.readTree(exchange.getRequestBody().readAllBytes());
+            rerankHook.run();
+            int count=rerankRequest.at("/input/documents").size();
+            var results=new ArrayList<Map<String,Object>>();
+            for(int i=0;i<count;i++) results.add(Map.of("index",i,"relevance_score",(i+1.0)/(count+1),"document",Map.of("text","伪造原文")));
+            byte[] body=JSON.writeValueAsBytes(Map.of("output",Map.of("results",results)));
+            exchange.sendResponseHeaders(rerankStatus,body.length); exchange.getResponseBody().write(body); exchange.close();
+        });
         // 仅验证兼容协议与状态机，固定测试向量没有语义能力，不能用于检索评测。
         server.createContext("/", exchange -> {
             calls++;
@@ -71,19 +149,594 @@ class VectorTests {
         });
         server.start();
         registry.add("app.embedding.base-url", () -> "http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
+        registry.add("app.chat.base-url", () -> "http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
+        registry.add("app.rerank.url",()->"http://127.0.0.1:"+server.getAddress().getPort()+"/rerank");
         registry.add("app.qdrant.url", () -> "http://" + QDRANT.getHost() + ":" + QDRANT.getMappedPort(6333));
     }
 
     @AfterAll static void stop() { server.stop(0); QDRANT.stop(); }
+    private static String streamChunk(String text,String finish) {
+        var choice=new java.util.LinkedHashMap<String,Object>();
+        choice.put("index",0); choice.put("delta",Map.of("role","assistant","content",text)); choice.put("finish_reason",finish);
+        var result=new java.util.LinkedHashMap<String,Object>();
+        result.put("id","test-stream"); result.put("object","chat.completion.chunk"); result.put("created",1); result.put("model","test-chat");
+        result.put("choices",java.util.List.of(choice));
+        if(finish!=null) result.put("usage",Map.of("prompt_tokens",20,"completion_tokens",10,"total_tokens",30));
+        return "data: "+JSON.writeValueAsString(result)+"\n\n";
+    }
     @Autowired JdbcClient jdbc;
     @Autowired VectorTaskProcessor processor;
     @Autowired QdrantIndex index;
+    @Autowired io.github.xw66.knowflowai.ingestion.Bm25TaskProcessor bm25;
+    @Autowired io.github.xw66.knowflowai.retrieval.LuceneIndex lexicalIndex;
     @Autowired io.github.xw66.knowflowai.ingestion.VectorCleanupProcessor cleanup;
     @Autowired io.github.xw66.knowflowai.document.DocumentService documents;
     @Autowired io.github.xw66.knowflowai.ingestion.TextTaskProcessor parser;
     @Autowired io.github.xw66.knowflowai.retrieval.SearchService search;
+    @Autowired io.github.xw66.knowflowai.chat.ConversationService conversations;
     @Autowired org.springframework.security.oauth2.jwt.JwtEncoder encoder;
+    @Autowired org.springframework.context.ApplicationContext context;
+    @Autowired org.springframework.data.redis.core.StringRedisTemplate redis;
     @org.springframework.boot.test.web.server.LocalServerPort int port;
+
+    private java.net.http.HttpResponse<String> answer(long task) throws Exception {
+        return request(base(task),owner(task),"{\"question\":\"测试段落\"}","answers");
+    }
+
+    private java.net.http.HttpResponse<String> history(long conversation,long user) throws Exception {
+        var request=java.net.http.HttpRequest.newBuilder(buildRequest(1,user,"{}",""),(name,value)->true)
+                .uri(java.net.URI.create("http://localhost:"+port+"/api/conversations/"+conversation+"/messages")).GET().build();
+        try(var client=java.net.http.HttpClient.newHttpClient()) { return client.send(request,java.net.http.HttpResponse.BodyHandlers.ofString()); }
+    }
+    private String messageStatus(long task) {
+        return jdbc.sql("SELECT m.status FROM chat_message m JOIN conversation c ON c.id=m.conversation_id WHERE c.knowledge_base_id=:id AND m.role='ASSISTANT' ORDER BY m.id DESC LIMIT 1")
+                .param("id",base(task)).query(String.class).single();
+    }
+
+    private long rewriteFixture() {
+        long task=seed(1);
+        jdbc.sql("UPDATE document_chunk c JOIN document_task t ON t.document_id=c.document_id SET c.content='报销材料提交财务经理。' WHERE t.id=:id").param("id",task).update();
+        processor.processNext(); indexAllBm25();
+        return task;
+    }
+    private long startRewriteConversation(long task) throws Exception {
+        var response=request(base(task),owner(task),"{\"question\":\"报销材料\",\"mode\":\"BM25\"}","answers");
+        assertThat(response.statusCode()).isEqualTo(200);
+        return Long.parseLong(response.headers().firstValue("X-Conversation-Id").orElseThrow());
+    }
+    private java.net.http.HttpResponse<String> followup(long task,long conversation,String endpoint) throws Exception {
+        return request(base(task),owner(task),"{\"question\":\"该找谁\",\"mode\":\"BM25\",\"rewrite\":true,\"conversationId\":"+conversation+"}",endpoint);
+    }
+
+    @Test
+    void rewriteResolvesFollowupAndRecordsOriginalEffectiveQueryAndUsage() throws Exception {
+        long task=rewriteFixture(),conversation=startRewriteConversation(task);
+        assertThat(search.search(owner(task),base(task),"该找谁",4,io.github.xw66.knowflowai.retrieval.SearchService.Mode.BM25)).isEmpty();
+        int before=rewriteCalls;
+        var response=followup(task,conversation,"answers");
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(JSON.readTree(response.body()).path("status").asText()).isEqualTo("ANSWERED");
+        assertThat(rewriteCalls).isEqualTo(before+1);
+        assertThat(rewriteRequest.path("max_tokens").asInt()).isEqualTo(128);
+        assertThat(rewriteRequest.path("enable_thinking").asBoolean(true)).isFalse();
+        assertThat(rewriteRequest.at("/response_format/type").asText()).isEqualTo("json_object");
+        assertThat(JSON.readTree(rewriteRequest.at("/messages/1/content").asText()).path("previousQuestion").asText()).isEqualTo("报销材料");
+        var saved=conversations.messages(owner(task),conversation,0,50).getLast();
+        assertThat(saved.originalQuestion()).isEqualTo("该找谁");
+        assertThat(saved.retrievalQuery()).isEqualTo("报销由谁负责？");
+        assertThat(saved.rewriteStatus()).isEqualTo("APPLIED");
+        assertThat(jdbc.sql("SELECT rewrite_total_tokens FROM chat_message WHERE id=:id").param("id",saved.id()).query(Integer.class).single()).isEqualTo(30);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"ERROR","INVALID","EMPTY","EXTRA","LONG"})
+    void rewriteFailureFallsBackWithoutExtraAnswerCall(String kind) throws Exception {
+        long task=rewriteFixture(),conversation=startRewriteConversation(task);
+        int before=rewriteCalls,chats=chatCalls;
+        if(kind.equals("ERROR")) rewriteStatus=503;
+        else rewriteOutput=switch(kind) {
+            case "INVALID" -> "bad json";
+            case "EMPTY" -> "{\"query\":\"\"}";
+            case "EXTRA" -> "{\"query\":\"报销\",\"knowledgeBaseId\":999}";
+            default -> JSON.writeValueAsString(Map.of("query","长".repeat(2001)));
+        };
+        try {
+            var response=followup(task,conversation,"answers");
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.body()).contains("INSUFFICIENT_EVIDENCE");
+            var saved=conversations.messages(owner(task),conversation,0,50).getLast();
+            assertThat(saved.retrievalQuery()).isEqualTo("该找谁");
+            assertThat(saved.rewriteStatus()).isEqualTo("FALLBACK");
+            assertThat(rewriteCalls).isEqualTo(before+1);
+            assertThat(chatCalls).isEqualTo(chats+1);
+        } finally { rewriteStatus=200; rewriteOutput="{\"query\":\"报销由谁负责？\"}"; }
+    }
+
+    @Test
+    void rewriteSkipsFirstQuestionAndInvalidHistory() throws Exception {
+        long task=rewriteFixture(); int before=rewriteCalls;
+        var first=request(base(task),owner(task),"{\"question\":\"报销\",\"rewrite\":true,\"mode\":\"BM25\"}","answers");
+        long conversation=Long.parseLong(first.headers().firstValue("X-Conversation-Id").orElseThrow());
+        assertThat(conversations.messages(owner(task),conversation,0,50).getLast().rewriteStatus()).isEqualTo("NO_CONTEXT");
+        jdbc.sql("UPDATE document SET status='DELETED' WHERE knowledge_base_id=:id").param("id",base(task)).update();
+        assertThat(followup(task,conversation,"answers").statusCode()).isEqualTo(200);
+        assertThat(rewriteCalls).isEqualTo(before);
+        assertThat(conversations.messages(owner(task),conversation,0,50).getLast().rewriteStatus()).isEqualTo("NO_CONTEXT");
+    }
+
+    @Test
+    void rewriteRechecksPermissionsAfterModel() throws Exception {
+        long task=rewriteFixture(),conversation=startRewriteConversation(task);
+        rewriteHook=()->jdbc.sql("DELETE FROM knowledge_member WHERE knowledge_base_id=:id").param("id",base(task)).update();
+        try { assertThat(followup(task,conversation,"answers").statusCode()).isEqualTo(404); }
+        finally { rewriteHook=()->{}; }
+    }
+
+    @Test
+    void rewrittenTextCannotExpandKnowledgeBaseScope() throws Exception {
+        long task=rewriteFixture(),conversation=startRewriteConversation(task);
+        long other=seed(1);
+        jdbc.sql("UPDATE document_chunk c JOIN document_task t ON t.document_id=c.document_id SET c.content='隔离机密专属资料' WHERE t.id=:id")
+                .param("id",other).update();
+        processor.processNext(); indexAllBm25();
+        assertThat(search.search(owner(other),base(other),"隔离机密",4,io.github.xw66.knowflowai.retrieval.SearchService.Mode.BM25)).hasSize(1);
+        rewriteOutput="{\"query\":\"隔离机密\"}";
+        try {
+            var response=followup(task,conversation,"answers");
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.body()).contains("INSUFFICIENT_EVIDENCE").doesNotContain("专属资料");
+        } finally { rewriteOutput="{\"query\":\"报销由谁负责？\"}"; }
+    }
+
+    @Test
+    void rewriteTimeoutFallsBackBeforeChatDefaultTimeout() throws Exception {
+        long task=rewriteFixture(),conversation=startRewriteConversation(task);
+        var release=new java.util.concurrent.CountDownLatch(1);
+        rewriteHook=()-> {
+            try { release.await(8,java.util.concurrent.TimeUnit.SECONDS); }
+            catch(InterruptedException error) { Thread.currentThread().interrupt(); }
+        };
+        try(var executor=java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            var future=executor.submit(()->followup(task,conversation,"answers"));
+            var response=future.get(6,java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(conversations.messages(owner(task),conversation,0,50).getLast().rewriteStatus()).isEqualTo("FALLBACK");
+        } finally { release.countDown(); rewriteHook=()->{}; }
+    }
+
+    @Test
+    void rewriteSourceRemainsProtectedAcrossMultipleTurnsAndStreaming() throws Exception {
+        long task=rewriteFixture(),conversation=startRewriteConversation(task);
+        long other=seed(1);
+        jdbc.sql("UPDATE document d JOIN document_task t ON t.document_id=d.id SET d.knowledge_base_id=:base WHERE t.id=:id")
+                .param("base",base(task)).param("id",other).update();
+        jdbc.sql("UPDATE document_chunk c JOIN document_task t ON t.document_id=c.document_id SET c.content='财务负责人是李经理。' WHERE t.id=:id")
+                .param("id",other).update();
+        processor.processNext(); indexAllBm25();
+        rewriteOutput="{\"query\":\"财务负责人\"}";
+        try {
+            var response=followup(task,conversation,"answers/stream");
+            assertThat(response.body()).contains("APPLIED","event:done").doesNotContain("event:error");
+            assertThat(followup(task,conversation,"answers").statusCode()).isEqualTo(200);
+            var last=conversations.messages(owner(task),conversation,0,50).getLast();
+            assertThat(last.citations()).hasSize(1).allMatch(c->c.quote().contains("李经理"));
+            jdbc.sql("UPDATE document_chunk c JOIN document_task t ON t.document_id=c.document_id SET c.content='changed' WHERE t.id=:id").param("id",task).update();
+            var messages=conversations.messages(owner(task),conversation,0,50);
+            assertThat(messages.stream().filter(m->m.role().equals("ASSISTANT")).toList()).hasSize(3)
+                    .allMatch(m->m.redacted() && m.content()==null && m.retrievalQuery()==null);
+        } finally { rewriteOutput="{\"query\":\"报销由谁负责？\"}"; }
+    }
+
+    @Test
+    void conversationPersistsAnswersAndOnlyItsOwnerCanReadOrContinue() throws Exception {
+        long task=seed(2); processor.processNext(); indexAllBm25();
+        var response=answer(task);
+        assertThat(response.statusCode()).isEqualTo(200);
+        long conversation=Long.parseLong(response.headers().firstValue("X-Conversation-Id").orElseThrow());
+        var saved=history(conversation,owner(task));
+        assertThat(saved.statusCode()).isEqualTo(200);
+        var messages=JSON.readTree(saved.body());
+        assertThat(messages).hasSize(2);
+        assertThat(messages.get(1).path("status").asText()).isEqualTo("COMPLETED");
+        assertThat(messages.get(1).path("content").asText()).isEqualTo(JSON.readTree(response.body()).path("answer").asText());
+        assertThat(messages.get(1).path("citations")).hasSize(1);
+        assertThat(messages.get(1).at("/usage/totalTokens").asInt()).isEqualTo(30);
+        long other=seed(1); processor.processNext();
+        assertThat(history(conversation,owner(other)).statusCode()).isEqualTo(404);
+        assertThat(request(base(other),owner(other),"{\"question\":\"测试\",\"conversationId\":"+conversation+"}","answers").statusCode()).isEqualTo(404);
+        assertThat(request(base(task),owner(task),"{\"question\":\"继续\",\"conversationId\":"+conversation+"}","answers").statusCode()).isEqualTo(200);
+        assertThat(JSON.readTree(history(conversation,owner(task)).body())).hasSize(4);
+        assertThat(conversations.list(owner(task),0,100)).anyMatch(item->item.id()==conversation);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"DELETE","VERSION","UNCITED","REVOKE"})
+    void conversationHistoryRechecksEveryInputSource(String change) throws Exception {
+        long task=seed(2); processor.processNext(); indexAllBm25();
+        var response=answer(task);
+        long conversation=Long.parseLong(response.headers().firstValue("X-Conversation-Id").orElseThrow());
+        long base=base(task),user=owner(task);
+        switch(change) {
+            case "DELETE" -> jdbc.sql("UPDATE document SET status='DELETED' WHERE knowledge_base_id=:id").param("id",base).update();
+            case "VERSION" -> jdbc.sql("UPDATE document SET active_index_version=2 WHERE knowledge_base_id=:id").param("id",base).update();
+            case "REVOKE" -> jdbc.sql("DELETE FROM knowledge_member WHERE knowledge_base_id=:id").param("id",base).update();
+            default -> {
+                long chunk=jdbc.sql("SELECT chunk_id FROM message_citation s JOIN chat_message m ON m.id=s.message_id WHERE m.conversation_id=:id AND s.cited=FALSE")
+                        .param("id",conversation).query(Long.class).single();
+                jdbc.sql("UPDATE document_chunk SET content='changed' WHERE id=:id").param("id",chunk).update();
+            }
+        }
+        var result=history(conversation,user);
+        if(change.equals("REVOKE")) {
+            assertThat(result.statusCode()).isEqualTo(404);
+            assertThat(conversations.list(user,0,100)).noneMatch(item->item.id()==conversation);
+        } else {
+            assertThat(result.statusCode()).isEqualTo(200);
+            var assistant=JSON.readTree(result.body()).get(1);
+            assertThat(assistant.path("redacted").asBoolean()).isTrue();
+            assertThat(assistant.path("content").isNull()).isTrue();
+            assertThat(assistant.path("citations")).isEmpty();
+        }
+    }
+
+    @Test
+    void conversationRejectsConcurrentGenerationAndRecoversInterruptedTurns() {
+        long task=seed(1); processor.processNext();
+        var turn=conversations.begin(owner(task),base(task),null,"测试");
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->conversations.begin(owner(task),base(task),turn.conversationId(),"重复"))
+                .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,error->assertThat(error.getStatusCode().value()).isEqualTo(409));
+        jdbc.sql("UPDATE chat_message SET created_at=TIMESTAMPADD(MINUTE,-6,CURRENT_TIMESTAMP(6)) WHERE id=:id").param("id",turn.messageId()).update();
+        var messages=conversations.messages(owner(task),turn.conversationId(),0,50);
+        assertThat(messages.getLast().status()).isEqualTo("FAILED");
+        assertThat(messages.getLast().errorCode()).isEqualTo("PROCESS_INTERRUPTED");
+        var next=conversations.begin(owner(task),base(task),turn.conversationId(),"重试");
+        conversations.terminate(next,"CANCELLED","部分内容",null,null,"CLIENT_DISCONNECTED");
+        conversations.terminate(next,"FAILED","不能覆盖",null,null,"LATE_FAILURE");
+        assertThat(conversations.messages(owner(task),turn.conversationId(),0,50).getLast().content()).isEqualTo("部分内容");
+    }
+
+    @Test
+    void conversationCompletionRollsBackIfCitationDoesNotMatch() {
+        long task=seed(1); processor.processNext();
+        var turn=conversations.begin(owner(task),base(task),null,"测试");
+        var hit=search.search(owner(task),base(task),"测试",1).getFirst();
+        conversations.evidence(turn,Map.of("C1",hit));
+        var forged=new io.github.xw66.knowflowai.chat.AnswerService.Citation("C1",hit.chunkId(),hit.documentId(),hit.documentName(),null,1,"伪造摘录");
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->conversations.complete(turn,"正文",java.util.List.of(forged),null,null))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(messageStatus(task)).isEqualTo("RUNNING");
+        conversations.terminate(turn,"FAILED","",null,null,"TEST_FAILED");
+    }
+
+    @Test
+    void simultaneousFollowupsCreateOnlyOneRunningAnswer() throws Exception {
+        long task=seed(1); processor.processNext();
+        var initial=conversations.begin(owner(task),base(task),null,"测试");
+        conversations.terminate(initial,"CANCELLED","",null,null,"TEST");
+        var barrier=new java.util.concurrent.CyclicBarrier(2);
+        try(var executor=java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            java.util.concurrent.Callable<Integer> attempt=()-> {
+                barrier.await();
+                try { conversations.begin(owner(task),base(task),initial.conversationId(),"并发追问"); return 200; }
+                catch(org.springframework.web.server.ResponseStatusException error) { return error.getStatusCode().value(); }
+            };
+            var first=executor.submit(attempt); var second=executor.submit(attempt);
+            assertThat(java.util.List.of(first.get(10,java.util.concurrent.TimeUnit.SECONDS),second.get(10,java.util.concurrent.TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(200,409);
+        }
+    }
+
+    @Test
+    void sseStreamsBodyAndFinishesWithVerifiedCitations() throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        var response=request(base(task),owner(task),"{\"question\":\"测试\"}","answers/stream");
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().firstValue("Content-Type").orElse("")).startsWith("text/event-stream");
+        assertThat(response.body()).contains("event:metadata","event:delta","event:citation","event:usage","event:done","test.txt","ANSWERED").doesNotContain("event:error");
+        assertThat(response.body().indexOf("event:delta")).isLessThan(response.body().indexOf("event:citation"));
+        assertThat(response.body().indexOf("event:citation")).isLessThan(response.body().indexOf("event:done"));
+        assertThat(chatRequest.path("stream").asBoolean()).isTrue();
+        assertThat(chatRequest.at("/stream_options/include_usage").asBoolean()).isTrue();
+        assertThat(chatRequest.at("/response_format/type").asText()).isEqualTo("text");
+        assertThat(chatRequest.path("enable_thinking").asBoolean(true)).isFalse();
+        assertThat(chatRequest.path("max_tokens").asInt()).isEqualTo(512);
+        assertThat(messageStatus(task)).isEqualTo("COMPLETED");
+        assertThat(response.body()).contains("conversationId","messageId");
+        assertThat(redis.opsForValue().get("knowflow:rate:v1:ANSWER:" + owner(task))).isEqualTo("1");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"TRUNCATED","EOF","FAKE","REVOKE"})
+    void sseErrorsNeverMarkPartialOutputSuccessful(String failure) throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        if(failure.equals("TRUNCATED")) chatFinish="length";
+        if(failure.equals("EOF")) streamOmitFinish=true;
+        if(failure.equals("FAKE")) chatOverride="伪造[C99]";
+        if(failure.equals("REVOKE")) streamHook=()->jdbc.sql("DELETE FROM knowledge_member WHERE knowledge_base_id=:id").param("id",base(task)).update();
+        try {
+            var response=request(base(task),owner(task),"{\"question\":\"测试\"}","answers/stream");
+            assertThat(response.body()).contains("event:error").doesNotContain("event:done","event:citation");
+            assertThat(messageStatus(task)).isEqualTo("FAILED");
+            if(failure.equals("REVOKE")) assertThat(response.body()).contains("\"discard\":true");
+        } finally { chatFinish="stop"; streamOmitFinish=false; chatOverride=null; streamHook=()->{}; }
+    }
+
+    @Test
+    void sseNoEvidenceSkipsModel() throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        int before=chatCalls;
+        var response=request(base(task),owner(task),"{\"question\":\"zzzxxyy\",\"mode\":\"BM25\"}","answers/stream");
+        assertThat(response.body()).contains("event:done","INSUFFICIENT_EVIDENCE").doesNotContain("event:delta","event:error");
+        assertThat(chatCalls).isEqualTo(before);
+    }
+
+    @Test
+    void sseDeliversBeforeModelFinishesAndDisconnectCancelsUpstream() throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        streamHold=true; streamDisconnected=false;
+        try(var client=java.net.http.HttpClient.newHttpClient()) {
+            var response=client.send(buildRequest(base(task),owner(task),"{\"question\":\"测试\"}","answers/stream"),java.net.http.HttpResponse.BodyHandlers.ofInputStream());
+            try(var reader=new java.io.BufferedReader(new java.io.InputStreamReader(response.body(),StandardCharsets.UTF_8))) {
+                var first=java.util.concurrent.CompletableFuture.supplyAsync(()-> {
+                    try { String line; while((line=reader.readLine())!=null) if(line.equals("event:delta")) return true; return false; }
+                    catch(java.io.IOException error) { throw new java.io.UncheckedIOException(error); }
+                });
+                assertThat(first.get(5,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                assertThat(streamHold).isTrue();
+            }
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(6)).until(()->streamDisconnected);
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(3)).until(()->messageStatus(task).equals("CANCELLED"));
+        } finally { streamHold=false; }
+    }
+
+    @Test
+    void sseDeadlineCancelsAnUnfinishedModel() throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        streamHold=true; streamDisconnected=false;
+        try {
+            var response=request(base(task),owner(task),"{\"question\":\"测试\"}","answers/stream");
+            assertThat(response.body()).contains("event:delta","event:error","STREAM_TIMEOUT").doesNotContain("event:done");
+            assertThat(messageStatus(task)).isEqualTo("FAILED");
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(3)).until(()->streamDisconnected);
+        } finally { streamHold=false; }
+    }
+
+    @Test
+    void answerReturnsVerifiedCitationsAndActualUsage() throws Exception {
+        long task=seed(2); processor.processNext(); indexAllBm25();
+        var response=answer(task);
+        assertThat(response.statusCode()).isEqualTo(200);
+        var body=JSON.readTree(response.body());
+        assertThat(body.path("status").asText()).isEqualTo("ANSWERED");
+        assertThat(body.at("/citations/0/documentName").asText()).isEqualTo("test.txt");
+        assertThat(body.at("/citations/0/quote").asText()).startsWith("测试段落");
+        assertThat(body.at("/usage/totalTokens").asInt()).isEqualTo(30);
+        assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(chatRequest.path("messages")).hasSize(2);
+        assertThat(chatRequest.at("/messages/0/role").asText()).isEqualTo("system");
+        assertThat(chatRequest.at("/response_format/type").asText()).isEqualTo("json_object");
+        assertThat(chatRequest.path("enable_thinking").asBoolean(true)).isFalse();
+        assertThat(chatRequest.path("max_tokens").asInt()).isEqualTo(512);
+        chatUsage=false;
+        try { assertThat(JSON.readTree(answer(task).body()).path("usage").isNull()).isTrue(); }
+        finally { chatUsage=true; }
+    }
+
+    @Test
+    void noEvidenceAndInvalidAccessAvoidChatCosts() throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        int before=chatCalls;
+        var response=request(base(task),owner(task),"{\"question\":\"zzzxxyyqq\",\"mode\":\"BM25\"}","answers");
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(JSON.readTree(response.body()).path("status").asText()).isEqualTo("INSUFFICIENT_EVIDENCE");
+        assertThat(request(base(task),0,"{\"question\":\"测试\"}","answers").statusCode()).isEqualTo(401);
+        assertThat(request(base(task),owner(task),"{\"question\":\"测试\",\"topK\":9}","answers").statusCode()).isEqualTo(400);
+        long other=seed(1); processor.processNext();
+        assertThat(request(base(task),owner(other),"{\"question\":\"测试\"}","answers").statusCode()).isEqualTo(404);
+        assertThat(chatCalls).isEqualTo(before);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={
+            "not json",
+            "{\"answer\":\"伪造[C99]\",\"citations\":[{\"id\":\"C99\",\"quote\":\"测试段落0\"}]}",
+            "{\"answer\":\"伪造[C1]\",\"citations\":[{\"id\":\"C1\",\"quote\":\"伪造原文\"}]}",
+            "{\"answer\":\"缺失[C1]\",\"citations\":[]}",
+            "{\"answer\":\"正文\",\"citations\":[],\"extra\":1}",
+            "{\"answer\":\"正文\",\"citations\":[]} {}"})
+    void invalidModelEvidenceIsNeverReturned(String output) throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        chatOverride=output;
+        try {
+            var response=answer(task);
+            assertThat(response.statusCode()).isEqualTo(502);
+            assertThat(response.body()).doesNotContain("伪造","test-only");
+            assertThat(messageStatus(task)).isEqualTo("FAILED");
+        } finally { chatOverride=null; }
+    }
+
+    @Test
+    void refusalTruncationAndUpstreamFailureHaveDistinctResults() throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        chatOverride="{\"answer\":\"未经证实的事实\",\"citations\":[]}";
+        try {
+            var response=answer(task);
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.body()).contains("INSUFFICIENT_EVIDENCE").doesNotContain("未经证实");
+        } finally { chatOverride=null; }
+        chatFinish="length";
+        try { assertThat(answer(task).statusCode()).isEqualTo(502); }
+        finally { chatFinish="stop"; }
+        int before=chatCalls; chatStatus=503;
+        try { assertThat(answer(task).statusCode()).isEqualTo(503); }
+        finally { chatStatus=200; }
+        assertThat(chatCalls).isEqualTo(before+1);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"REVOKE","DELETE","VERSION","UNCITED"})
+    void answerRechecksAllInputEvidenceAfterGeneration(String change) throws Exception {
+        long task=seed(2); processor.processNext(); indexAllBm25();
+        long base=base(task),user=owner(task);
+        chatHook=() -> {
+            switch(change) {
+                case "REVOKE" -> jdbc.sql("DELETE FROM knowledge_member WHERE knowledge_base_id=:id").param("id",base).update();
+                case "DELETE" -> jdbc.sql("UPDATE document SET status='DELETED' WHERE knowledge_base_id=:id").param("id",base).update();
+                case "VERSION" -> jdbc.sql("UPDATE document SET active_index_version=2 WHERE knowledge_base_id=:id").param("id",base).update();
+                default -> {
+                    String uncited=JSON.readTree(chatRequest.at("/messages/1/content").asText()).at("/evidence/1/content").asText();
+                    jdbc.sql("UPDATE document_chunk c JOIN document d ON d.id=c.document_id SET c.content='changed' WHERE d.knowledge_base_id=:id AND c.content=:content")
+                            .param("id",base).param("content",uncited).update();
+                }
+            }
+        };
+        try {
+            var response=answer(task);
+            assertThat(response.statusCode()).isEqualTo(change.equals("REVOKE")?404:409);
+            assertThat(response.body()).doesNotContain("原文说明","测试段落");
+        } finally { chatHook=() -> {}; }
+    }
+
+    @Test
+    void rerankUsesFusionCandidatesBeforeTopKAndReportsActualOutcome() throws Exception {
+        long task=seed(3); processor.processNext(); indexAllBm25();
+        int before=rerankCalls;
+        var ordinary=request(base(task),owner(task),"{\"query\":\"测试段落\",\"mode\":\"HYBRID\"}");
+        assertThat(ordinary.headers().firstValue("X-Rerank-Status")).contains("NOT_REQUESTED");
+        assertThat(rerankCalls).isEqualTo(before);
+        var response=request(base(task),owner(task),"{\"query\":\"测试段落\",\"mode\":\"HYBRID\",\"topK\":1,\"rerank\":true}");
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().firstValue("X-Rerank-Status")).contains("APPLIED");
+        assertThat(response.headers().firstValue("X-Rerank-Model")).contains("test-rerank");
+        assertThat(response.headers().firstValue("X-Search-Score-Type")).contains("RERANK");
+        assertThat(rerankRequest.at("/input/documents")).hasSize(3);
+        assertThat(JSON.readTree(response.body())).hasSize(1);
+        assertThat(JSON.readTree(response.body()).get(0).path("content").asText()).isEqualTo(rerankRequest.at("/input/documents/2").asText());
+        assertThat(response.body()).doesNotContain("伪造原文");
+        assertThat(rerankCalls).isEqualTo(before+1);
+    }
+
+    @Test
+    void rerankFailureReturnsOriginalRrfOrderAndInvalidModeDoesNotCallModels() throws Exception {
+        long task=seed(2); processor.processNext(); indexAllBm25();
+        var baseline=request(base(task),owner(task),"{\"query\":\"测试段落\",\"mode\":\"HYBRID\"}");
+        int before=rerankCalls;
+        rerankStatus=503;
+        try {
+            var response=request(base(task),owner(task),"{\"query\":\"测试段落\",\"mode\":\"HYBRID\",\"rerank\":true}");
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.body()).isEqualTo(baseline.body());
+            assertThat(response.headers().firstValue("X-Rerank-Status")).contains("FALLBACK");
+            assertThat(response.headers().firstValue("X-Search-Score-Type")).contains("RRF");
+            assertThat(response.headers().firstValue("X-Rerank-Model")).isEmpty();
+        } finally { rerankStatus=200; }
+        assertThat(rerankCalls).isEqualTo(before+1);
+        int embeddings=calls;
+        assertThat(request(base(task),owner(task),"{\"query\":\"测试\",\"mode\":\"VECTOR\",\"rerank\":true}").statusCode()).isEqualTo(400);
+        assertThat(calls).isEqualTo(embeddings);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"REVOKE","DELETE","VERSION"})
+    void rerankRechecksAccessAndActiveVersionAfterRemoteCall(String change) throws Exception {
+        long task=seed(2); processor.processNext(); indexAllBm25();
+        long base=base(task),user=owner(task);
+        long document=jdbc.sql("SELECT document_id FROM document_task WHERE id=:id").param("id",task).query(Long.class).single();
+        rerankHook=() -> {
+            switch(change) {
+                case "REVOKE" -> jdbc.sql("DELETE FROM knowledge_member WHERE knowledge_base_id=:id").param("id",base).update();
+                case "DELETE" -> documents.delete(user,base,document);
+                default -> jdbc.sql("UPDATE document SET index_version=2,active_index_version=2 WHERE id=:id").param("id",document).update();
+            }
+        };
+        try {
+            var response=request(base,user,"{\"query\":\"测试段落\",\"mode\":\"HYBRID\",\"rerank\":true}");
+            if(change.equals("REVOKE")) assertThat(response.statusCode()).isEqualTo(404);
+            else { assertThat(response.statusCode()).isEqualTo(200); assertThat(JSON.readTree(response.body())).isEmpty(); }
+        } finally { rerankHook=() -> {}; }
+    }
+
+    @Test
+    void oneCandidateSkipsPaidRerank() throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        int before=rerankCalls;
+        var response=request(base(task),owner(task),"{\"query\":\"测试段落\",\"mode\":\"HYBRID\",\"rerank\":true}");
+        assertThat(response.headers().firstValue("X-Rerank-Status")).contains("INSUFFICIENT_CANDIDATES");
+        assertThat(response.headers().firstValue("X-Rerank-Model")).isEmpty();
+        assertThat(rerankCalls).isEqualTo(before);
+    }
+
+    @Test
+    void disabledRerankerReportsDisabledInsteadOfApplied() {
+        long task=seed(2); processor.processNext(); indexAllBm25();
+        var empty=new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        var service=new io.github.xw66.knowflowai.retrieval.SearchService(jdbc,
+                context.getBean(io.github.xw66.knowflowai.knowledge.KnowledgeBaseService.class),
+                context.getBeanProvider(org.springframework.ai.embedding.EmbeddingModel.class),context.getBeanProvider(QdrantIndex.class),
+                context.getBeanProvider(io.github.xw66.knowflowai.retrieval.LuceneIndex.class),
+                empty.getBeanProvider(io.github.xw66.knowflowai.retrieval.RerankClient.class),
+                context.getBean(org.springframework.transaction.PlatformTransactionManager.class));
+        int before=rerankCalls;
+        var result=service.search(owner(task),base(task),"测试段落",5,io.github.xw66.knowflowai.retrieval.SearchService.Mode.HYBRID,true);
+        assertThat(result.rerankStatus()).isEqualTo(io.github.xw66.knowflowai.retrieval.SearchService.RerankStatus.DISABLED);
+        assertThat(result.rerankModel()).isNull();
+        assertThat(result.hits()).hasSize(2);
+        assertThat(rerankCalls).isEqualTo(before);
+    }
+
+    @Test
+    void hybridFusesRealIndexesAndCountsOnlyReadyBm25Progress() throws Exception {
+        long task=seed(1); processor.processNext();
+        var before=request(base(task),owner(task),"{\"query\":\"测试段落\",\"mode\":\"HYBRID\"}");
+        assertThat(before.statusCode()).isEqualTo(200);
+        assertThat(JSON.readTree(before.body()).get(0).path("score").asDouble()).isCloseTo(1.0/61,org.assertj.core.data.Offset.offset(1e-12));
+        indexAllBm25();
+        var response=request(base(task),owner(task),"{\"query\":\"测试段落\",\"topK\":1,\"mode\":\"HYBRID\"}");
+        assertThat(response.statusCode()).isEqualTo(200);
+        var hits=JSON.readTree(response.body());
+        assertThat(hits).hasSize(1);
+        assertThat(hits.get(0).path("content").asText()).isEqualTo("测试段落0");
+        assertThat(hits.get(0).path("score").asDouble()).isCloseTo(2.0/61,org.assertj.core.data.Offset.offset(1e-12));
+        jdbc.sql("UPDATE bm25_index_progress p JOIN document_task t ON t.document_id=p.document_id SET p.instance_id='stale' WHERE t.id=:id")
+                .param("id",task).update();
+        assertThat(search.search(owner(task),base(task),"测试段落",5,io.github.xw66.knowflowai.retrieval.SearchService.Mode.HYBRID))
+                .singleElement().satisfies(hit -> assertThat(hit.score()).isCloseTo(1.0/61,org.assertj.core.data.Offset.offset(1e-12)));
+    }
+
+    @Test
+    void hybridRejectsForgedCrossBaseCandidatesFromBothRoutes() throws Exception {
+        long task=seed(1); processor.processNext();
+        long other=seed(1); processor.processNext(); indexAllBm25();
+        var row=jdbc.sql("SELECT c.id,c.document_id FROM document_chunk c JOIN document_task t ON t.document_id=c.document_id WHERE t.id=:id")
+                .param("id",other).query().singleRow();
+        long chunk=((Number)row.get("id")).longValue(), document=((Number)row.get("document_id")).longValue();
+        index.upsert(java.util.List.of(Map.of("id",UUID.randomUUID().toString(),"vector",new float[]{0.1f,1.1f,2.1f},
+                "payload",Map.of("knowledge_base_id",base(task),"document_id",document,"chunk_id",chunk,"index_version",1))));
+        lexicalIndex.replace(document,base(task),1,java.util.List.of(new io.github.xw66.knowflowai.retrieval.LuceneIndex.Chunk(chunk,"测试段落0")));
+        var hits=search.search(owner(task),base(task),"测试段落",5,io.github.xw66.knowflowai.retrieval.SearchService.Mode.HYBRID);
+        assertThat(hits).hasSize(1).allMatch(hit -> hit.documentId()!=document);
+        assertThat(hits.getFirst().score()).isCloseTo(2.0/61,org.assertj.core.data.Offset.offset(1e-12));
+        int before=calls;
+        assertThat(request(base(task),owner(other),"{\"query\":\"测试段落\",\"mode\":\"HYBRID\"}").statusCode()).isEqualTo(404);
+        assertThat(calls).isEqualTo(before);
+    }
+
+    @Test
+    void hybridRechecksRevocationAndDoesNotHideModelFailureWithLexicalResults() throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        responseStatus=503;
+        try { assertThat(request(base(task),owner(task),"{\"query\":\"测试段落\",\"mode\":\"HYBRID\"}").statusCode()).isEqualTo(503); }
+        finally { responseStatus=200; }
+        long user=owner(task), base=base(task);
+        modelHook=() -> jdbc.sql("DELETE FROM knowledge_member WHERE knowledge_base_id=:base AND user_id=:user").param("base",base).param("user",user).update();
+        try { assertThat(request(base,user,"{\"query\":\"测试段落\",\"mode\":\"HYBRID\"}").statusCode()).isEqualTo(404); }
+        finally { modelHook=() -> {}; }
+    }
+
+    private void indexAllBm25() {
+        int count=jdbc.sql("SELECT COUNT(*) FROM document").query(Integer.class).single();
+        for (int i=0;i<count;i++) bm25.processNext();
+    }
 
     @Test
     void deletionDuringEmbeddingFencesCompletionAndRechecksLateWrites() {
@@ -226,7 +879,13 @@ class VectorTests {
     private long base(long task) { return jdbc.sql("SELECT d.knowledge_base_id FROM document d JOIN document_task t ON t.document_id=d.id WHERE t.id=:id").param("id",task).query(Long.class).single(); }
     private long owner(long task) { return jdbc.sql("SELECT owner_id FROM knowledge_base WHERE id=:id").param("id",base(task)).query(Long.class).single(); }
     private java.net.http.HttpResponse<String> request(long base,long user,String body) throws Exception {
-        var request=java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:"+port+"/api/knowledge-bases/"+base+"/search"))
+        return request(base,user,body,"search");
+    }
+    private java.net.http.HttpResponse<String> request(long base,long user,String body,String endpoint) throws Exception {
+        try(var client=java.net.http.HttpClient.newHttpClient()) { return client.send(buildRequest(base,user,body,endpoint),java.net.http.HttpResponse.BodyHandlers.ofString()); }
+    }
+    private java.net.http.HttpRequest buildRequest(long base,long user,String body,String endpoint) {
+        var request=java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:"+port+"/api/knowledge-bases/"+base+"/"+endpoint))
                 .header("Content-Type","application/json").POST(java.net.http.HttpRequest.BodyPublishers.ofString(body));
         if (user>0) {
             var now=java.time.Instant.now();
@@ -236,17 +895,25 @@ class VectorTests {
                     org.springframework.security.oauth2.jwt.JwsHeader.with(org.springframework.security.oauth2.jose.jws.MacAlgorithm.HS256).build(),claims)).getTokenValue();
             request.header("Authorization","Bearer "+token);
         }
-        try(var client=java.net.http.HttpClient.newHttpClient()) { return client.send(request.build(),java.net.http.HttpResponse.BodyHandlers.ofString()); }
+        return request.build();
     }
 
     @Test
     void batchesActivateOnlyWhenCompleteAndReplayDoesNotDuplicatePoints() {
         long task = seed(17);
-        processor.processNext();
+        assertThat(documents.task(owner(task), task).stage()).isEqualTo("CHUNKED");
+        modelHook = () -> assertThat(documents.task(owner(task), task).status()).isEqualTo("PROCESSING");
+        try { processor.processNext(); } finally { modelHook = () -> {}; }
+        assertThat(redis.hasKey("knowflow:task:v1:" + task + ":1")).isFalse();
+        assertThat(redis.hasKey("knowflow:task:v1:" + task + ":2")).isFalse();
+        assertThat(documents.task(owner(task), task).stage()).isEqualTo("CHUNKED");
         assertThat(state(task)).isEqualTo("PENDING");
         assertThat(active(task)).isNull();
         assertThat(count(task)).isEqualTo(16);
         processor.processNext();
+        assertThat(redis.hasKey("knowflow:task:v1:" + task + ":3")).isFalse();
+        assertThat(jdbc.sql("SELECT cache_version FROM document_task WHERE id=:id").param("id", task).query(Long.class).single()).isEqualTo(5);
+        assertThat(documents.task(owner(task), task).status()).isEqualTo("SUCCEEDED");
         assertThat(state(task)).isEqualTo("SUCCEEDED");
         assertThat(active(task)).isEqualTo(1);
         assertThat(count(task)).isEqualTo(17);
@@ -281,10 +948,27 @@ class VectorTests {
         long task = seed(1);
         responseStatus = 429;
         try {
-            for (int i = 0; i < 3; i++) { due(task); processor.processNext(); }
+            for (int i = 0; i < 3; i++) {
+                due(task);
+                long version = jdbc.sql("SELECT cache_version FROM document_task WHERE id=:id").param("id", task).query(Long.class).single();
+                documents.task(owner(task), task);
+                processor.processNext();
+                assertThat(redis.hasKey("knowflow:task:v1:" + task + ":" + version)).isFalse();
+            }
         } finally { responseStatus = 200; }
         assertThat(state(task)).isEqualTo("FAILED");
         assertThat(active(task)).isNull();
+    }
+
+    @Test
+    void exhaustedVectorLeaseInvalidatesCachedProcessingState() {
+        long task = seed(1);
+        jdbc.sql("UPDATE document_task SET status='PROCESSING',stage='INDEXING',vector_attempts=max_attempts,lease_token='crashed',lease_until=TIMESTAMPADD(SECOND,-1,CURRENT_TIMESTAMP(6)) WHERE id=:id")
+                .param("id", task).update();
+        assertThat(documents.task(owner(task), task).status()).isEqualTo("PROCESSING");
+        processor.processNext();
+        assertThat(redis.hasKey("knowflow:task:v1:" + task + ":1")).isFalse();
+        assertThat(documents.task(owner(task), task).errorCode()).isEqualTo("VECTOR_RETRY_EXHAUSTED");
     }
 
     @Test

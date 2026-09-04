@@ -40,8 +40,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "app.jwt.secret=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+        "app.cache.enabled=true",
+        "app.rate-limit.enabled=false",
         "app.document.max-file-size=64KB", "spring.servlet.multipart.max-request-size=128KB"})
-@Import(KnowFlowAiApplicationTests.DatabaseConfiguration.class)
+@Import({KnowFlowAiApplicationTests.DatabaseConfiguration.class, KnowledgeBaseTests.RedisConfiguration.class})
 @ActiveProfiles("test")
 class DocumentTests {
     @TempDir
@@ -58,9 +60,113 @@ class DocumentTests {
     private JdbcClient jdbc;
     @Autowired
     private ObjectMapper mapper;
+    @Autowired
+    private org.springframework.data.redis.core.StringRedisTemplate redis;
+    @Autowired
+    private io.github.xw66.knowflowai.document.DocumentService documents;
+    @Autowired
+    private io.github.xw66.knowflowai.document.TaskCache taskCache;
+    @Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+    @Autowired
+    private org.testcontainers.containers.GenericContainer<?> redisContainer;
 
     private Actor owner;
     private long baseId;
+
+    @Test
+    void taskCacheHasShortTtlAndRechecksMembershipAndDeletion() throws Exception {
+        var uploaded = upload(owner, baseId, UUID.randomUUID().toString(), "cached.txt", fixture("txt"));
+        expect(uploaded, 202);
+        long task = number(uploaded, "$.taskId");
+        var first = documents.task(owner.id(), task);
+        assertThat(taskCache.get(task, 1)).isEqualTo(first);
+        assertThat(redis.getExpire(taskKey(task, 1), TimeUnit.MILLISECONDS)).isBetween(1L, 5000L);
+        var viewer = actor(); grant(viewer, "VIEWER");
+        assertThat(documents.task(viewer.id(), task)).isEqualTo(first);
+        expect(request(owner, "DELETE", "/api/knowledge-bases/" + baseId + "/members/" + viewer.id(), null), 204);
+        expect(request(viewer, "GET", "/api/document-tasks/" + task, null), 404);
+        expect(request(actor(), "GET", "/api/document-tasks/" + task, null), 404);
+        documents.delete(owner.id(), baseId, number(uploaded, "$.documentId"));
+        assertThat(redis.hasKey(taskKey(task, 1))).isFalse();
+        expect(request(owner, "GET", "/api/document-tasks/" + task, null), 404);
+    }
+
+    @Test
+    void malformedAndExpiredTaskCacheRefillsWithoutChangingResponse() throws Exception {
+        var uploaded = upload(owner, baseId, UUID.randomUUID().toString(), "cache-format.txt", fixture("txt"));
+        expect(uploaded, 202);
+        long task = number(uploaded, "$.taskId");
+        var first = documents.task(owner.id(), task);
+        redis.opsForValue().set(taskKey(task, 1), "broken-json", Duration.ofSeconds(5));
+        assertThat(documents.task(owner.id(), task)).isEqualTo(first);
+        assertThat(taskCache.get(task, 1)).isEqualTo(first);
+        redis.expire(taskKey(task, 1), Duration.ofMillis(1));
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(2)).until(() -> !Boolean.TRUE.equals(redis.hasKey(taskKey(task, 1))));
+        assertThat(documents.task(owner.id(), task)).isEqualTo(first);
+        assertThat(taskCache.get(task, 1)).isEqualTo(first);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"SUCCEEDED", "FAILED"})
+    void terminalTaskAlwaysComesFromDatabaseEvenIfOldCacheRemains(String terminal) throws Exception {
+        var uploaded = upload(owner, baseId, UUID.randomUUID().toString(), "terminal.txt", fixture("txt"));
+        expect(uploaded, 202);
+        long task = number(uploaded, "$.taskId");
+        documents.task(owner.id(), task);
+        // 模拟外部维护未清缓存的情况，终态查询仍必须以数据库为准。
+        jdbc.sql("UPDATE document_task SET status=:status WHERE id=:id").param("status", terminal).param("id", task).update();
+        assertThat(taskCache.get(task, 1).status()).isEqualTo("PENDING");
+        assertThat(documents.task(owner.id(), task).status()).isEqualTo(terminal);
+    }
+
+    @Test
+    void rollbackDoesNotPublishTaskStateAndLateFillCannotOverrideCommittedVersion() throws Exception {
+        var uploaded = upload(owner, baseId, UUID.randomUUID().toString(), "transaction.txt", fixture("txt"));
+        expect(uploaded, 202);
+        long task = number(uploaded, "$.taskId");
+        var first = documents.task(owner.id(), task);
+        var transaction = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        transaction.executeWithoutResult(status -> {
+            jdbc.sql("UPDATE document_task SET cache_version=cache_version+1, stage='QUEUED' WHERE id=:id").param("id", task).update();
+            taskCache.invalidateAfterChange(task);
+            assertThat(documents.task(owner.id(), task).stage()).isEqualTo("QUEUED");
+            assertThat(redis.hasKey(taskKey(task, 2))).isFalse();
+            status.setRollbackOnly();
+        });
+        assertThat(documents.task(owner.id(), task)).isEqualTo(first);
+        transaction.executeWithoutResult(status -> {
+            jdbc.sql("UPDATE document_task SET cache_version=cache_version+1, stage='QUEUED' WHERE id=:id").param("id", task).update();
+            taskCache.invalidateAfterChange(task);
+            assertThat(redis.hasKey(taskKey(task, 1))).isTrue();
+        });
+        assertThat(redis.hasKey(taskKey(task, 1))).isFalse();
+        taskCache.put(task, 1, first);
+        assertThat(documents.task(owner.id(), task).stage()).isEqualTo("QUEUED");
+        assertThat(taskCache.get(task, 2).stage()).isEqualTo("QUEUED");
+    }
+
+    private static String taskKey(long id, long version) {
+        return "knowflow:task:v1:" + id + ":" + version;
+    }
+
+    @Test
+    void redisFailureDoesNotPreventTaskReadOrDocumentDeletion() throws Exception {
+        var uploaded = upload(owner, baseId, UUID.randomUUID().toString(), "redis-failure.txt", fixture("txt"));
+        expect(uploaded, 202);
+        long task = number(uploaded, "$.taskId");
+        var initial = documents.task(owner.id(), task);
+        redisContainer.execInContainer("redis-cli", "ACL", "SETUSER", "default", "-get", "-set", "-del");
+        try {
+            assertThat(documents.task(owner.id(), task)).isEqualTo(initial);
+            documents.delete(owner.id(), baseId, number(uploaded, "$.documentId"));
+            expect(request(owner, "GET", "/api/document-tasks/" + task, null), 404);
+        } finally {
+            redisContainer.execInContainer("redis-cli", "ACL", "SETUSER", "default", "+get", "+set", "+del");
+        }
+        assertThat(taskCache.get(task, 1)).isEqualTo(initial);
+        expect(request(owner, "GET", "/api/document-tasks/" + task, null), 404);
+    }
 
     @Test
     void deletingIsAuthorizedIdempotentAndCannotBeReplayedAsUpload() throws Exception {
@@ -91,11 +197,15 @@ class DocumentTests {
         var uploaded=upload(owner,baseId,UUID.randomUUID().toString(),"rollback.txt",fixture("txt"));
         expect(uploaded,202);
         long id=number(uploaded,"$.documentId");
+        long task = number(uploaded, "$.taskId");
+        var initial = documents.task(owner.id(), task);
         jdbc.sql("RENAME TABLE vector_cleanup TO vector_cleanup_unavailable").update();
         try {
             expect(request(owner,"DELETE","/api/knowledge-bases/"+baseId+"/documents/"+id,null),503);
             assertThat(jdbc.sql("SELECT status FROM document WHERE id=:id").param("id",id).query(String.class).single()).isEqualTo("PENDING");
             assertThat(jdbc.sql("SELECT status FROM document_task WHERE document_id=:id").param("id",id).query(String.class).single()).isEqualTo("PENDING");
+            assertThat(taskCache.get(task, 1)).isEqualTo(initial);
+            assertThat(documents.task(owner.id(), task)).isEqualTo(initial);
         } finally {
             jdbc.sql("RENAME TABLE vector_cleanup_unavailable TO vector_cleanup").update();
         }

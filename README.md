@@ -4,7 +4,7 @@
 
 已实现：HTTP 健康检查、MySQL / Flyway 迁移、用户注册与登录、BCrypt 密码哈希、JWT 鉴权、系统 RBAC、知识库与成员权限、文件上传、文档任务与事务 Outbox、Kafka 可靠投递与 Worker 幂等接收、参数校验、唯一约束、ProblemDetail 错误响应及 JSON 结构化日志。
 
-已实现权限向量检索、真实 Embedding 联调、Swagger、文档管理及异步删除清理。尚未实现 BM25 / Hybrid、问答与 SSE、Redis、入口限流和完整应用 Compose；完整进度见 [实施进度](docs/roadmap.md)。当前 Compose 包含 MySQL、Kafka 与 Qdrant。Worker 接收后任务为 PENDING / QUEUED；四种文件提取正文并分块后为 PENDING / CHUNKED；启用 Embedding 后继续向量入库。
+已实现权限向量检索、BM25、Hybrid / RRF、可选 Rerank、同步与 SSE 证据问答、真实模型连通性验证、Swagger、文档管理及异步删除清理。已接入会话持久化、可选查询改写、模型超时及可选 Fallback、可选的 [知识库与任务状态缓存](docs/cache-design.md)，以及默认启用的 [原子接口限流](docs/rate-limit-design.md)。Redis 请求幂等和完整应用 Compose 尚待实施；完整进度见 [实施进度](docs/roadmap.md)。当前 Compose 包含 MySQL、Redis、Kafka 与 Qdrant。Worker 接收后任务为 PENDING / QUEUED；四种文件提取正文并分块后为 PENDING / CHUNKED；启用 Embedding 后继续向量入库。
 
 ## 环境与启动
 
@@ -30,7 +30,7 @@ Copy-Item .env.example .env
 当前开发机器的 `.env` 已补齐随机 JWT 密钥，无需重新生成。密钥缺失、Base64 格式错误或长度不足时应用拒绝启动。
 
 ```powershell
-docker compose up -d --wait mysql kafka qdrant
+docker compose up -d --wait mysql redis kafka qdrant
 .\mvnw.cmd -version
 .\mvnw.cmd spring-boot:run
 ```
@@ -268,7 +268,43 @@ API 进程与 Worker 使用同一组 Embedding 和 Qdrant 配置，启用模型�
 
 检索前从 MySQL 授权，Qdrant 查询强制携带知识库过滤，模型调用后再次授权。正文来自 MySQL，仅返回当前成员可见、READY、匹配 active_index_version 与 vector_collection 的分块。最终读取使用短事务与知识库共享锁，和成员修改互斥；网络请求不占用数据库事务。授权以最终数据库读取为边界，已经发送的数据无法在后续撤权时追回。
 
-每次最多取 200 个向量候选，验证并去重后返回前 topK 个；无效或旧版本点过多时可能少于 topK，不无限扫描。当前最多逐个校验 200 个候选，后续压测决定是否改为批量读取。真实百炼小样本链路已通过；尚未实现 BM25、RRF 或系统性效果评测。
+每次最多取 200 个向量候选，验证并去重后返回前 topK 个；无效或旧版本点过多时可能少于 topK，不无限扫描。当前最多逐个校验 200 个候选，后续压测决定是否改为批量读取。真实百炼小样本链路已通过；尚未进行系统性效果评测。
+
+### Hybrid Search
+
+同一入口也支持 `{"query":"报销流程","topK":5,"mode":"HYBRID"}`，须同时启用 Embedding 与 BM25。两路各取最多 200 个候选，分别校验当前权限、READY 状态、激活版本，以及向量集合 / BM25 实例进度；两路校验与融合在同一数据库事务内完成。
+
+HYBRID 的 score 为 `Σ 1 / (60 + rank)`，rank 从每路授权并去重后的第 1 名开始。同一分块在同一路只计一次、在两路出现则各计一次；融合后再截取 topK，同分按 chunkId 升序。原始向量分数与 BM25 分数不参与相加。空结果是合法的，任一路缺少配置或调用失败则返回 503，不静默伪装成完整 Hybrid。
+
+### 可选 Rerank
+
+本地默认 `RERANK_ENABLED=false`，普通搜索不会调用重排。配置好 `RERANK_URL`、`RERANK_API_KEY`、`RERANK_MODEL` 后启用服务，再请求 `{"query":"报销流程","topK":5,"mode":"HYBRID","rerank":true}`。当前适配 [百炼原生文本排序协议](https://help.aliyun.com/zh/model-studio/text-rerank-api)，默认模型 `gte-rerank-v2`；它不是聊天模型，也不是通用 OpenAI Chat Completions 协议。默认北京地址已通过一次短请求验证，新工作空间也可填写控制台提供的完整地域 URL。
+
+只发送 RRF 前 20 个已授权片段（`RERANK_CANDIDATES` 可设 20–50）。总等待期限默认 `RERANK_TIMEOUT=PT5S`，覆盖响应体读取；超时取消请求、不自动重试。接收阶段限制响应为 128 KiB。HTTP 错误、超大响应、非法分数、重复 / 越界索引或不完整结果均退回 RRF 顺序。模型只决定候选顺序与分数，正文和引用位置仍来自 MySQL，返回前再次验证权限和当前激活版本。
+
+响应体仍是结果数组，响应头 `X-Rerank-Status` 的取值如下：
+
+| 状态 | 含义 |
+|---|---|
+| NOT_REQUESTED | 请求未开启重排 |
+| DISABLED | 本地未启用重排服务，返回 RRF |
+| INSUFFICIENT_CANDIDATES | 少于两个候选，跳过无必要的调用 |
+| APPLIED | 配置的重排服务成功返回完整有效排列 |
+| FALLBACK | 重排调用失败，返回原 RRF 顺序并过滤已失效片段 |
+
+`X-Search-Score-Type` 标明 VECTOR / BM25 / RRF / RERANK；仅 APPLIED 返回 `X-Rerank-Model`。真实评测必须检查这些响应头，不能将关闭、跳过或回退结果计入 Hybrid + Rerank。当前仅验证过真实接口连通性，尚未证明质量提升或测量吞吐量。
+
+### BM25 关键词检索
+
+在本地 `.env` 设置 `BM25_ENABLED=true`，API 与 Worker 的 `BM25_DIRECTORY` 指向同一绝对目录（默认 `.data/lucene`，不同工作目录时必须显式指定）。启动 Worker 后会从 MySQL 中 READY 文档的当前激活分块逐步建立 Lucene 10.3.2 索引。新文档仍须完成原文档处理流程，关键词查询本身不调用 Embedding。
+
+同一搜索接口传入 `{"query":"报销流程","topK":5,"mode":"BM25"}`。省略 mode 仍为 VECTOR，响应正文、文档名及引用位置格式相同。采用 CJKAnalyzer 与 BM25Similarity，关键词最多分析前 256 个 token，不支持用户指定 Lucene 查询语法。分数为 BM25 相关性，不是概率，也不能直接与向量分数相加。
+
+Worker 是唯一 Writer，文件锁拒绝第二个 Writer。API 只读取已 commit 的磁盘索引；MySQL V10 `bm25_index_progress` 单独记录实例、版本、READY / CLEANED / RETRY_WAIT、提交时间及错误码。写入失败自动退避重试，间隔上限 300 秒。最终返回正文前再次校验权限、激活版本及该 Reader 实例的 READY 进度。向量激活到 BM25 同步完成之间可能暂时没有关键词结果。
+
+删除立即在 MySQL 隐藏文档，BM25 Worker 随后提交空分块组完成物理索引清理。每次整组替换同一文档，重放和版本切换不会重复分块。索引丢失时，停下 Worker，将 API 与 Worker 配置到同一个新的空目录再启动；新实例会从 MySQL 重建，旧实例进度不会被误用。不要在运行时删除锁文件，也不要清空 MySQL 分块。损坏或未知来源索引启动失败时应先保留原目录排查。
+
+当前限定同机共享持久化目录，不支持多个目录的 Worker 同时写同一数据库。API 每次查询打开已提交 Reader；后续以压测判断是否需要 SearcherManager。测试使用隔离的 MySQL 与临时磁盘目录，不读取或改写开发索引；测试通过不代表检索质量或吞吐量结论。
 
 ### Embedding 与 Qdrant
 
@@ -332,6 +368,58 @@ DOCX 按正文顺序提取段落与表格单元格，空段落占用段落号但
 
 上传测试使用真实 HTTP multipart、真实 MySQL 与独立临时文件目录，覆盖四种文件、摘要与落盘字节一致性、并发和重复上传、幂等键冲突与作用域、权限和任务隔离、类型伪装、压缩炸弹、上传大小限制、存储故障以及 Outbox 写入失败时的数据库/文件回滚。
 
-消息测试覆盖 HTTP 上传到 Worker 接收、重复投递、过期租约接管、发布器并发抢占、暂停真实 broker 后的退避重试、非法消息转死信，以及数据库故障时不提交消费位点。文本处理覆盖分块落库、重复消息不重复处理、文件丢失与恢复、摘要篡改、崩溃租约接管及重试耗尽，并验证段落编号与 Unicode 分块。PDF / DOCX 测试使用库生成的真实文件，覆盖上传到分块入库、PDF 空页后的页码保留、DOCX 段落表格顺序，以及加密、损坏、无正文和 PDF 页数超限。向量测试进一步覆盖分批激活、稳定 ID 重放、模型错误与维度错误、Qdrant 暂停恢复、MySQL 提交失败后的安全重放。完整 `verify` 当前通过 103 个测试；这些结果不代表吞吐量或检索效果。
+消息测试覆盖 HTTP 上传到 Worker 接收、重复投递、过期租约接管、发布器并发抢占、暂停真实 broker 后的退避重试、非法消息转死信，以及数据库故障时不提交消费位点。文本处理覆盖分块落库、重复消息不重复处理、文件丢失与恢复、摘要篡改、崩溃租约接管及重试耗尽，并验证段落编号与 Unicode 分块。PDF / DOCX 测试使用库生成的真实文件，覆盖上传到分块入库、PDF 空页后的页码保留、DOCX 段落表格顺序，以及加密、损坏、无正文和 PDF 页数超限。向量测试进一步覆盖分批激活、稳定 ID 重放、模型错误与维度错误、Qdrant 暂停恢复、MySQL 提交失败后的安全重放。完整 `verify` 当前通过 190 个测试；这些结果不代表吞吐量或检索效果。
 
-下一增量：Lucene BM25 检索与独立索引进度。完整进度见 [实施进度](docs/roadmap.md)。
+### 同步证据问答
+
+在本地 `.env` 配置 `CHAT_ENABLED=true`、`CHAT_API_KEY`、`CHAT_BASE_URL` 和 `CHAT_MODEL`。百炼使用 `https://dashscope.aliyuncs.com/compatible-mode/v1` 与 `qwen3.8-flash`，密钥可引用已有 `${BAILIAN_API_KEY}`。默认关闭思考、最多 512 输出 Token、超时 20 秒、无自动重试。示例文件默认不启用付费模型。
+
+登录并在 Swagger 授权后调用 `POST /api/knowledge-bases/{id}/answers`：
+
+```json
+{"question":"报销需要提交什么材料？","topK":4,"mode":"HYBRID","rerank":false}
+```
+
+默认 HYBRID 需要启用 Embedding 与 BM25，首次建立索引需等待 Worker 完成。已有 BM25 索引时可选 `mode=BM25`，避免查询 Embedding 调用。无证据时返回 `INSUFFICIENT_EVIDENCE`，不会调用聊天模型。成功结果包含 `answer`、服务端校验的 `citations`（文档名、页码或段落、连续原文摘录）、实际模型及 `usage`；服务未提供 usage 时为 null。
+
+引用编号伪造、摘录不匹配或输出截断返回 502；模型不可用返回 503。生成期间撤权返回 404，输入文档失效返回 409，均不返回生成正文。这些来源校验不等同于语义正确性评测。完整协议见 [问答设计](docs/answer-design.md)。
+
+### SSE 问答
+
+`POST /api/knowledge-bases/{id}/answers/stream` 使用相同 JSON 请求、Bearer JWT，响应为 `text/event-stream`。可以通过支持流式响应的 HTTP 客户端或 `curl.exe -N` 查看；浏览器使用带 Authorization 的 fetch 读取流，并用 AbortController 取消请求。
+
+依次处理 metadata、delta、citation、usage、done。delta 为未完成正文，只有 done 才能标记完整；error 或连接中断不能标记成功。done.answer 是最终文本，应覆盖临时正文；error.discard=true 时清除临时文本。原生 EventSource 无法直接发送此 POST 和 Bearer 请求头，不适用于该接口。
+
+默认流式总期限 30 秒，断线心跳间隔 1 秒；取消或超时会释放上游订阅，不自动重试。详情与字段见 [SSE 协议](docs/sse-design.md)。此增量未调用真实百炼流式接口，自动测试使用本地模型协议替身。
+
+### 会话与历史记录
+
+答案请求可增加 `conversationId` 续问；省略时自动建会话。会话绑定当前用户与知识库，不能跨库或借用别人的会话。同一会话正在生成时，再次请求返回 409。同步响应头返回 `X-Conversation-Id` / `X-Message-Id`，SSE metadata 返回 `conversationId` / `messageId`。
+
+`GET /api/conversations?afterId=0&limit=50` 查询本人可访问的会话；`GET /api/conversations/{id}/messages?afterId=0&limit=50` 查询消息。每页最多 100 条，响应禁止缓存。助手消息区分 RUNNING、COMPLETED、FAILED、CANCELLED；失败和取消可能保留未完成文本，不能作为完整答案展示。
+
+历史消息使用过的任一来源被删除、换版或修改时，返回 `redacted=true`、`content=null` 和空引用；知识库撤权后整个会话返回 404。超过五分钟仍运行的遗留消息在读取或续问时标记 PROCESS_INTERRUPTED，后续统一对账补充后台巡检。COMPLETED 表示服务已完整生成并持久化，不代表客户端已经确认收到了最后一个数据包。
+
+表结构和边界见 [会话设计](docs/conversation-design.md)。
+
+### 上下文查询改写
+
+在续问请求中显式设置 `rewrite=true`，服务读取最近一轮完整且仍有权限的问答，把追问改写为独立检索问题。默认不改写，首次提问或无有效历史不会调用改写模型。同步和 SSE 都支持：
+
+```json
+{"question":"这个该找谁办理？","conversationId":123,"mode":"HYBRID","rewrite":true}
+```
+
+改写复用当前聊天模型，最多 128 输出 Token、3 秒超时、不重试，失败退回原问题。历史消息返回 `originalQuestion`、`retrievalQuery`、`rewriteStatus`；改写 usage 单独保存在数据库，不能与回答 usage 混为一次调用。SSE metadata 包含 rewriteStatus。即使模型输出其他知识库相关的文字，也只检索请求绑定的知识库。
+
+改写引用的历史消息会形成来源依赖；任一历史来源失效时，衍生答案和 retrievalQuery 一并隐藏。当前依赖检查受 MySQL 递归上限约束，超出时拒绝读取。测试替身上的检索对照只验证链路，尚无真实改写质量提升结论。详情见 [查询改写设计](docs/rewrite-design.md)。
+
+### 模型超时与备用模型
+
+聊天调用配置 `CHAT_CONNECT_TIMEOUT`（默认 5 秒）、`CHAT_TOTAL_TIMEOUT`（默认 30 秒）、`CHAT_FIRST_TOKEN_TIMEOUT` / `CHAT_IDLE_TIMEOUT`（默认各 8 秒）。流式接口同时受原有 `CHAT_STREAM_DEADLINE` 约束。`CHAT_RETRIES` 默认 0、最多 2 次，SDK 内部重试始终关闭，避免叠加次数。
+
+需要备用聊天模型时设置 `CHAT_FALLBACK_ENABLED=true` 与实际可用的 `CHAT_FALLBACK_MODEL`。默认复用主模型服务地址和密钥；不同服务使用 `CHAT_FALLBACK_BASE_URL` / `CHAT_FALLBACK_API_KEY`。当前本地未启用备用模型，未为此额外调用真实 API。
+
+仅瞬态错误可重试，主模型次数耗尽后最多调用一次备用模型；认证错误或内容校验失败不重试。SSE 一旦产生正文或结束标记，后续失败保留未完成状态，禁止切换。总期限不会因重试或切换重置；最终 model / usage 来自实际返回结果的模型。Embedding 不切换模型，改写仍单次失败退回原问题。详见 [模型韧性设计](docs/model-resilience-design.md)。
+
+下一增量：Redis 热点元数据与任务状态缓存。完整进度见 [实施进度](docs/roadmap.md)。

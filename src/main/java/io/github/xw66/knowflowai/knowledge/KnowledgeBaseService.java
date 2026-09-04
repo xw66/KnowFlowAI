@@ -2,6 +2,8 @@ package io.github.xw66.knowflowai.knowledge;
 
 import java.util.List;
 import java.util.Objects;
+import java.time.Duration;
+import io.github.xw66.knowflowai.cache.RedisCache;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -23,9 +25,11 @@ public class KnowledgeBaseService {
             """;
 
     private final JdbcClient jdbcClient;
+    private final RedisCache cache;
 
-    public KnowledgeBaseService(JdbcClient jdbcClient) {
+    public KnowledgeBaseService(JdbcClient jdbcClient, RedisCache cache) {
         this.jdbcClient = jdbcClient;
+        this.cache = cache;
     }
 
     @Transactional
@@ -47,6 +51,31 @@ public class KnowledgeBaseService {
     }
 
     public KnowledgeBaseView get(long userId, long id) {
+        if (!cache.usable()) return getFromDatabase(userId, id);
+        // 权限、所有者和缓存版本以数据库为准，Redis 不保存用户角色。
+        var access = jdbcClient.sql("""
+                SELECT kb.owner_id, kb.cache_version, km.role
+                FROM knowledge_base kb
+                JOIN knowledge_member km ON km.knowledge_base_id = kb.id
+                JOIN app_user u ON u.id = km.user_id
+                WHERE kb.id = :id AND km.user_id = :userId
+                  AND kb.status = 'ACTIVE' AND u.status = 'ACTIVE'
+                """).param("id", id).param("userId", userId).query(BaseAccess.class)
+                .optional().orElseThrow(KnowledgeBaseService::notFound);
+        String key = cacheKey(id, access.cacheVersion());
+        String name = cache.get(key);
+        if (name == null) {
+            var current = jdbcClient.sql("SELECT name FROM knowledge_base WHERE id = :id AND cache_version = :version AND status = 'ACTIVE'")
+                    .param("id", id).param("version", access.cacheVersion()).query(String.class).optional();
+            // 并发改名后不把新名称写入旧版本，也不无限重试。
+            if (current.isEmpty()) return getFromDatabase(userId, id);
+            name = current.get();
+            cache.put(key, name, Duration.ofMinutes(5));
+        }
+        return new KnowledgeBaseView(id, name, access.ownerId(), access.role());
+    }
+
+    private KnowledgeBaseView getFromDatabase(long userId, long id) {
         return jdbcClient.sql(VISIBLE_BASES + " AND kb.id = :id")
                 .param("userId", userId).param("id", id).query(KnowledgeBaseView.class)
                 .optional().orElseThrow(KnowledgeBaseService::notFound);
@@ -55,8 +84,11 @@ public class KnowledgeBaseService {
     @Transactional
     public KnowledgeBaseView rename(long userId, long id, String name) {
         var base = lockForEditing(userId, id);
-        jdbcClient.sql("UPDATE knowledge_base SET name = :name WHERE id = :id")
+        long version = jdbcClient.sql("SELECT cache_version FROM knowledge_base WHERE id = :id")
+                .param("id", id).query(Long.class).single();
+        jdbcClient.sql("UPDATE knowledge_base SET name = :name, cache_version = cache_version + 1 WHERE id = :id")
                 .param("name", name.strip()).param("id", id).update();
+        cache.invalidateAfterCommit(cacheKey(id, version));
         return new KnowledgeBaseView(id, name.strip(), base.ownerId(), base.role());
     }
 
@@ -139,6 +171,13 @@ public class KnowledgeBaseService {
     }
 
     public record KnowledgeBaseView(long id, String name, long ownerId, String role) {
+    }
+
+    private record BaseAccess(long ownerId, long cacheVersion, String role) {
+    }
+
+    private static String cacheKey(long id, long version) {
+        return "knowflow:kb:name:v1:" + id + ":" + version;
     }
 
     public record MemberView(long userId, String username, String role, String status) {

@@ -1,5 +1,7 @@
 package io.github.xw66.knowflowai.ingestion;
 
+import io.github.xw66.knowflowai.document.TaskCache;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
@@ -16,10 +18,12 @@ public class DocumentWorker {
     private static final Logger LOG = LoggerFactory.getLogger(DocumentWorker.class);
     private final JdbcClient jdbc;
     private final ObjectMapper mapper;
+    private final TaskCache cache;
 
-    public DocumentWorker(JdbcClient jdbc, ObjectMapper mapper) {
+    public DocumentWorker(JdbcClient jdbc, ObjectMapper mapper, TaskCache cache) {
         this.jdbc = jdbc;
         this.mapper = mapper;
+        this.cache = cache;
     }
 
     @KafkaListener(id = "document-worker", topics = "${app.messaging.document-topic}",
@@ -44,9 +48,10 @@ public class DocumentWorker {
         }
         // 接收标记与事务提交先于消费位点提交；重放只确认，不重置已接收或已处理任务。
         int updated = jdbc.sql("""
-                UPDATE document_task SET received_at = CURRENT_TIMESTAMP(6), stage = 'QUEUED'
+                UPDATE document_task SET cache_version=cache_version+1, received_at = CURRENT_TIMESTAMP(6), stage = 'QUEUED'
                 WHERE id = :id AND index_version = :version AND status = 'PENDING' AND received_at IS NULL
                 """).param("id", event.taskId()).param("version", event.indexVersion()).update();
+        if (updated == 1) cache.invalidateAfterChange(event.taskId());
         LOG.atInfo().addKeyValue("taskId", event.taskId()).addKeyValue("firstReceipt", updated == 1)
                 .log("Worker 已接收文档任务，等待解析模块处理");
     }
