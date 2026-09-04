@@ -124,7 +124,7 @@ class VectorTests {
             int count=rerankRequest.at("/input/documents").size();
             var results=new ArrayList<Map<String,Object>>();
             for(int i=0;i<count;i++) results.add(Map.of("index",i,"relevance_score",(i+1.0)/(count+1),"document",Map.of("text","伪造原文")));
-            byte[] body=JSON.writeValueAsBytes(Map.of("output",Map.of("results",results)));
+            byte[] body=JSON.writeValueAsBytes(Map.of("output",Map.of("results",results),"usage",Map.of("total_tokens",count)));
             exchange.sendResponseHeaders(rerankStatus,body.length); exchange.getResponseBody().write(body); exchange.close();
         });
         // 仅验证兼容协议与状态机，固定测试向量没有语义能力，不能用于检索评测。
@@ -620,10 +620,12 @@ class VectorTests {
     @Test
     void rerankUsesFusionCandidatesBeforeTopKAndReportsActualOutcome() throws Exception {
         long task=seed(3); processor.processNext(); indexAllBm25();
+        long last=jdbc.sql("SELECT COALESCE(MAX(id),0) FROM model_call").query(Long.class).single();
         int before=rerankCalls;
         var ordinary=request(base(task),owner(task),"{\"query\":\"测试段落\",\"mode\":\"HYBRID\"}");
         assertThat(ordinary.headers().firstValue("X-Rerank-Status")).contains("NOT_REQUESTED");
         assertThat(rerankCalls).isEqualTo(before);
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM model_call WHERE id>:last AND call_type='RERANK'").param("last",last).query(Long.class).single()).isZero();
         var response=request(base(task),owner(task),"{\"query\":\"测试段落\",\"mode\":\"HYBRID\",\"topK\":1,\"rerank\":true}");
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.headers().firstValue("X-Rerank-Status")).contains("APPLIED");
@@ -634,6 +636,7 @@ class VectorTests {
         assertThat(JSON.readTree(response.body()).get(0).path("content").asText()).isEqualTo(rerankRequest.at("/input/documents/2").asText());
         assertThat(response.body()).doesNotContain("伪造原文");
         assertThat(rerankCalls).isEqualTo(before+1);
+        assertThat(jdbc.sql("SELECT total_tokens FROM model_call WHERE id>:last AND call_type='RERANK' AND status='COMPLETED' AND input_tokens IS NULL AND output_tokens IS NULL").param("last",last).query(Integer.class).single()).isEqualTo(3);
     }
 
     @Test

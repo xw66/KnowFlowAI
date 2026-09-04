@@ -424,6 +424,6 @@ DOCX 按正文顺序提取段落与表格单元格，空段落占用段落号但
 
 ### 模型调用统计
 
-管理员可通过 `GET /api/admin/model-calls` 分页查看聊天主备尝试，通过 `/api/admin/model-calls/summary` 查询最近 24 小时的次数、耗时和已知 Token。每次重试独立记录，流式累计 usage 不重复相加；缺失用量保持未知。调用完成不代表回答引用校验通过。
+管理员可通过 `GET /api/admin/model-calls` 分页查看模型调用尝试，通过 `/api/admin/model-calls/summary` 查询最近 24 小时的次数、耗时和已知 Token。每次重试独立记录，流式累计 usage 不重复相加；缺失用量保持未知。调用完成不代表回答引用校验通过。
 
-当前覆盖聊天回答（CHAT）、查询改写（REWRITE）和向量生成（EMBEDDING）；后者区分 QUERY / INDEX，入库调用关联 taskId。改写或向量内容校验失败仍保留已经发生的调用和用量。Rerank 与价格预算控制待接入，当前汇总尚不代表全部模型费用。边界见 [调用记账设计](docs/model-call-design.md)，完整进度见 [实施进度](docs/roadmap.md)。
+当前覆盖聊天回答（CHAT）、查询改写（REWRITE）、向量生成（EMBEDDING）和重排（RERANK）；Embedding 区分 QUERY / INDEX，入库调用关联 taskId。内容校验失败仍保留已经发生的调用和已知用量。Rerank 只返回总 Token 时，输入、输出保持未知。价格预算控制待接入，当前汇总尚不代表全部模型费用。边界见 [调用记账设计](docs/model-call-design.md)，完整进度见 [实施进度](docs/roadmap.md)。

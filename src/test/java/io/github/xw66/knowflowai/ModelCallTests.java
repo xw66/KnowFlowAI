@@ -88,6 +88,16 @@ class ModelCallTests {
         jdbc.sql("DELETE FROM model_call").update();
         assertThat(json.readTree(get("/summary",admin).body()).path("knownTotalTokens").isNull()).isTrue();
     }
+    @Test void totalOnlyUsageDoesNotBecomeInputOrOutputTokens() throws Exception {
+        long id=log.start(UUID.randomUUID().toString(),1,"RERANK","PRIMARY",false,null,"test-rerank");
+        log.finish(id,"COMPLETED",null,new ModelCallLog.Tokens(null,null,11),10,null);
+        var summary=json.readTree(get("/summary",token("ADMIN")).body());
+        assertThat(summary.path("knownUsageCalls").asInt()).isEqualTo(1);
+        assertThat(summary.path("knownTotalTokens").asInt()).isEqualTo(11);
+        assertThat(summary.path("knownInputTokens").isNull()).isTrue();
+        assertThat(summary.path("knownOutputTokens").isNull()).isTrue();
+    }
+
     HttpResponse<String> get(String path,String token) throws Exception {
         var request=HttpRequest.newBuilder(URI.create("http://localhost:"+port+"/api/admin/model-calls"+path)).timeout(java.time.Duration.ofSeconds(5));
         if(token!=null) request.header("Authorization","Bearer "+token);
