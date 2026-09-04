@@ -16,6 +16,7 @@ const documents = shallowRef<DocumentItem[]>([]); const conversations = shallowR
 const members = shallowRef<Member[]>([]); const memberForm = reactive({ userId: '', role: 'VIEWER' })
 const knowledgeBases = shallowRef<KnowledgeBase[]>([]); const newKnowledgeBaseName = shallowRef(''); const creatingKnowledgeBase = shallowRef(false)
 const documentAction = shallowRef<number | null>(null)
+let answerAbortController: AbortController | undefined
 
 async function loadKnowledgeBases() {
   const response = await fetch('/api/knowledge-bases?limit=100', { headers: { Authorization: `Bearer ${props.token}` } })
@@ -105,15 +106,16 @@ async function upload() {
 }
 
 async function ask() {
-  answering.value=true; answerText.value=''; citations.value=[]; error.value=''
+  answering.value=true; answerText.value=''; citations.value=[]; error.value=''; answerAbortController = new AbortController()
   try {
-    const response=await fetch(`/api/knowledge-bases/${encodeURIComponent(form.knowledgeBaseId)}/answers/stream`,{method:'POST',headers:{Authorization:`Bearer ${props.token}`,'Content-Type':'application/json'},body:JSON.stringify({question:answerQuestion.value,topK:4,mode:'HYBRID',rerank:false})})
+    const response=await fetch(`/api/knowledge-bases/${encodeURIComponent(form.knowledgeBaseId)}/answers/stream`,{method:'POST',headers:{Authorization:`Bearer ${props.token}`,'Content-Type':'application/json'},body:JSON.stringify({question:answerQuestion.value,topK:4,mode:'HYBRID',rerank:false}),signal:answerAbortController.signal})
     if(!response.ok || !response.body) throw new Error('问答请求失败')
     const reader=response.body.getReader(); const decoder=new TextDecoder(); let buffer=''
     while(true){const {value,done}=await reader.read(); if(done) break; buffer+=decoder.decode(value,{stream:true}); const events=buffer.split('\n\n'); buffer=events.pop() ?? ''; for(const block of events){const name=block.match(/^event:\s*(.+)$/m)?.[1]; const raw=block.match(/^data:\s*(.+)$/m)?.[1]; if(!name||!raw) continue; const data=JSON.parse(raw); if(name==='delta') answerText.value+=data.text ?? ''; if(name==='citation') citations.value=[...citations.value,data]; if(name==='error') throw new Error('流式问答失败');}}
-  } catch(cause) { error.value=cause instanceof Error?cause.message:'问答失败' }
-  finally { answering.value=false }
+  } catch(cause) { if (!(cause instanceof DOMException && cause.name === 'AbortError')) error.value=cause instanceof Error?cause.message:'问答失败' }
+  finally { answering.value=false; answerAbortController = undefined }
 }
+function stopAnswer() { answerAbortController?.abort() }
 
 onMounted(() => loadKnowledgeBases().catch(cause => { error.value = cause instanceof Error ? cause.message : '知识库列表读取失败' }))
 </script>
@@ -128,7 +130,7 @@ onMounted(() => loadKnowledgeBases().catch(cause => { error.value = cause instan
     <section class="member-panel"><div class="panel-title"><h3>成员权限</h3><button class="link-button" @click="loadMembers">刷新</button></div><form class="member-form" @submit.prevent="saveMember"><input v-model.trim="memberForm.userId" required inputmode="numeric" placeholder="用户 ID" /><select v-model="memberForm.role"><option value="VIEWER">VIEWER · 只读</option><option value="EDITOR">EDITOR · 可编辑</option></select><button :disabled="!form.knowledgeBaseId">授权</button></form><div v-for="member in members" :key="member.userId" class="document-row"><strong>{{ member.username }}</strong><small>{{ member.role }} · {{ member.status }}</small><button v-if="member.role !== 'OWNER'" class="remove-button" @click="removeMember(member.userId)">移除</button></div><p v-if="!members.length" class="muted">点击刷新查看知识库成员</p></section>
     <p v-if="error" class="error notice">{{ error }}</p><p v-else-if="!hits.length" class="empty">输入问题后，可信片段会显示在这里。</p>
     <div v-else class="results"><article v-for="(hit,index) in hits" :key="`${hit.documentName}-${hit.paragraphNumber}-${index}`" class="result"><div class="result-meta"><span>C{{ index + 1 }}</span><strong>{{ hit.documentName }}</strong><small v-if="hit.pageNumber">第 {{ hit.pageNumber }} 页</small><small v-else-if="hit.paragraphNumber">段落 {{ hit.paragraphNumber }}</small><small class="score">{{ hit.score.toFixed(3) }}</small></div><p>{{ hit.content }}</p></article></div>
-    <section class="answer-card"><div class="answer-heading"><div><p class="eyebrow">EVIDENCE ANSWER</p><h3>基于证据问答</h3></div><span v-if="answering" class="muted">正在生成…</span></div><form class="ask-row" @submit.prevent="ask"><input v-model.trim="answerQuestion" required :disabled="answering" placeholder="针对当前知识库继续提问" /><button :disabled="answering || !form.knowledgeBaseId">{{ answering ? '生成中…' : '提问' }}</button></form><p v-if="answerText" class="answer-text">{{ answerText }}</p><div v-if="citations.length" class="citation-list"><small v-for="citation in citations" :key="`${citation.documentName}-${citation.paragraphNumber}`">{{ citation.documentName }} · 段落 {{ citation.paragraphNumber ?? '—' }}：{{ citation.quote }}</small></div></section>
+    <section class="answer-card"><div class="answer-heading"><div><p class="eyebrow">EVIDENCE ANSWER</p><h3>基于证据问答</h3></div><span v-if="answering" class="muted">正在生成…</span></div><form class="ask-row" @submit.prevent="ask"><input v-model.trim="answerQuestion" required :disabled="answering" placeholder="针对当前知识库继续提问" /><button v-if="answering" type="button" class="secondary" @click="stopAnswer">停止生成</button><button v-else :disabled="!form.knowledgeBaseId">提问</button></form><p v-if="answerText" class="answer-text">{{ answerText }}</p><div v-if="citations.length" class="citation-list"><small v-for="citation in citations" :key="`${citation.documentName}-${citation.paragraphNumber}`">{{ citation.documentName }} · 段落 {{ citation.paragraphNumber ?? '—' }}：{{ citation.quote }}</small></div></section>
     <section class="history-panel"><div class="panel-title"><h3>最近会话</h3><button class="link-button" @click="loadConversations">刷新</button></div><p v-if="!conversations.length" class="muted">暂无历史会话</p><div v-for="conversation in conversations" :key="conversation.id" class="history-row">会话 #{{ conversation.id }}<small>{{ new Date(conversation.createdAt).toLocaleString() }}</small></div></section>
   </section>
 </template>
