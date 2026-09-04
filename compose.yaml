@@ -87,6 +87,21 @@ services:
       QDRANT_URL: http://qdrant:6333
       DOCUMENT_STORAGE_DIRECTORY: /data/documents
       BM25_DIRECTORY: /data/lucene
+      EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-false}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
+      BM25_ENABLED: ${BM25_ENABLED:-false}
+      CHAT_ENABLED: ${CHAT_ENABLED:-false}
+      CHAT_BASE_URL: ${CHAT_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      CHAT_API_KEY: ${CHAT_API_KEY:-}
+      CHAT_MODEL: ${CHAT_MODEL:-qwen3.8-flash}
+      RERANK_ENABLED: ${RERANK_ENABLED:-false}
+      RERANK_URL: ${RERANK_URL:-https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank}
+      RERANK_API_KEY: ${RERANK_API_KEY:-}
+      RERANK_MODEL: ${RERANK_MODEL:-gte-rerank-v2}
+      MODEL_BUDGET_ENABLED: ${MODEL_BUDGET_ENABLED:-true}
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
     volumes:
@@ -112,6 +127,13 @@ services:
       QDRANT_URL: http://qdrant:6333
       DOCUMENT_STORAGE_DIRECTORY: /data/documents
       BM25_DIRECTORY: /data/lucene
+      EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-false}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
+      BM25_ENABLED: ${BM25_ENABLED:-false}
+      MODEL_BUDGET_ENABLED: ${MODEL_BUDGET_ENABLED:-true}
     volumes:
       - document-data:/data/documents
       - lucene-data:/data/lucene
