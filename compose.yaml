@@ -73,8 +73,52 @@ services:
       timeout: 3s
       retries: 20
 
+  api:
+    build: .
+    profiles: [app]
+    environment:
+      SPRING_PROFILES_ACTIVE: api
+      DB_URL: jdbc:mysql://mysql:3306/knowflow?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      QDRANT_URL: http://qdrant:6333
+      DOCUMENT_STORAGE_DIRECTORY: /data/documents
+      BM25_DIRECTORY: /data/lucene
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    volumes:
+      - document-data:/data/documents
+      - lucene-data:/data/lucene
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+
+  worker:
+    build: .
+    profiles: [app]
+    environment:
+      SPRING_PROFILES_ACTIVE: worker
+      DB_URL: jdbc:mysql://mysql:3306/knowflow?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      QDRANT_URL: http://qdrant:6333
+      DOCUMENT_STORAGE_DIRECTORY: /data/documents
+      BM25_DIRECTORY: /data/lucene
+    volumes:
+      - document-data:/data/documents
+      - lucene-data:/data/lucene
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+
 volumes:
   redis-data:
   mysql-data:
   kafka-data:
   qdrant-data:
+  document-data:
+  lucene-data:
