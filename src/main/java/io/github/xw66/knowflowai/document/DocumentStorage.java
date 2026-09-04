@@ -84,6 +84,8 @@ public class DocumentStorage {
     }
 
     public byte[] read(String key) throws IOException {
+        try { Files.readAttributes(directory,java.nio.file.attribute.BasicFileAttributes.class); }
+        catch (java.nio.file.NoSuchFileException error) { throw new IOException("存储目录不可用",error); }
         var target = directory.resolve(key).normalize();
         if (!target.getParent().equals(directory) || Files.isSymbolicLink(target)) {
             throw new IOException("存储键无效");

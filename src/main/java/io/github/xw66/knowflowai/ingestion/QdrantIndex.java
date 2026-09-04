@@ -34,6 +34,16 @@ public class QdrantIndex {
 
     public String collection() { return collection; }
 
+    public JsonNode inspectDocument(String targetCollection, long documentId, int limit) {
+        if (targetCollection == null || !targetCollection.matches("knowflow_[a-f0-9]{32}") || documentId <= 0 || limit < 1 || limit > 2001)
+            throw new IllegalArgumentException("对账范围无效");
+        return client.post().uri("/collections/" + targetCollection + "/points/scroll")
+                .body(Map.of("limit",limit,"with_vector",false,
+                        "with_payload",List.of("document_id","knowledge_base_id","index_version","chunk_id"),
+                        "filter",Map.of("must",List.of(Map.of("key","document_id","match",Map.of("value",documentId))))))
+                .retrieve().body(JsonNode.class);
+    }
+
     public void deleteDocument(String targetCollection, long documentId) {
         if (!targetCollection.matches("knowflow_[a-f0-9]{32}") || documentId <= 0) {
             throw new IllegalArgumentException("清理范围无效");

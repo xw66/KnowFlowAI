@@ -81,6 +81,34 @@ class ReconcileTests {
     }
 
     String state(long id) { return jdbc.sql("SELECT status FROM document_task WHERE id=:id").param("id",id).query(String.class).single(); }
+    @Test void externalReportRequiresAdminAndPagesWithinRequestedKnowledgeBase() throws Exception {
+        long first=task("PARSING",0,0,false), second=task("PARSING",0,0,false);
+        long base=jdbc.sql("SELECT knowledge_base_id FROM document WHERE id=(SELECT document_id FROM document_task WHERE id=:id)").param("id",first).query(Long.class).single();
+        long doc=jdbc.sql("SELECT document_id FROM document_task WHERE id=:id").param("id",first).query(Long.class).single();
+        String admin=token("ADMIN");
+        assertThat(get("?knowledgeBaseId="+base,null).statusCode()).isEqualTo(401);
+        assertThat(get("?knowledgeBaseId="+base,token("USER")).statusCode()).isEqualTo(403);
+        for(String query:List.of("","?knowledgeBaseId=0","?knowledgeBaseId="+base+"&limit=11","?knowledgeBaseId="+base+"&afterId=-1"))
+            assertThat(get(query,admin).statusCode()).isEqualTo(400);
+        var single=json.readTree(get("?knowledgeBaseId="+base+"&limit=1",admin).body());
+        assertThat(single.path("documents").size()).isEqualTo(1);
+        assertThat(single.at("/documents/0/documentId").asLong()).isEqualTo(doc);
+        assertThat(single.path("nextAfterId").isNull()).isTrue();
+        jdbc.sql("UPDATE document SET knowledge_base_id=:base WHERE id=(SELECT document_id FROM document_task WHERE id=:id)").param("base",base).param("id",second).update();
+        var response=get("?knowledgeBaseId="+base+"&limit=1",admin);
+        assertThat(response.headers().firstValue("Cache-Control").orElse("")).contains("no-store");
+        var page=json.readTree(response.body());
+        assertThat(page.path("nextAfterId").asLong()).isEqualTo(doc);
+        var next=json.readTree(get("?knowledgeBaseId="+base+"&limit=1&afterId="+doc,admin).body());
+        assertThat(next.path("documents").size()).isEqualTo(1);
+        assertThat(next.at("/documents/0/documentId").asLong()).isGreaterThan(doc);
+        assertThat(next.path("nextAfterId").isNull()).isTrue();
+    }
+    HttpResponse<String> get(String query,String token) throws Exception {
+        var request=HttpRequest.newBuilder(URI.create("http://localhost:"+port+"/api/admin/reconcile/documents"+query)).GET();
+        if(token!=null) request.header("Authorization","Bearer "+token);
+        try(var client=HttpClient.newHttpClient()) { return client.send(request.build(),HttpResponse.BodyHandlers.ofString()); }
+    }
     long task(String stage,int attempts,int vectorAttempts,boolean active) {
         String name=UUID.randomUUID().toString().replace("-", "");
         jdbc.sql("INSERT INTO app_user(username,password_hash) VALUES (:name,'unused')").param("name",name).update();

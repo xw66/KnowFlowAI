@@ -1,0 +1,106 @@
+{
+  "pages": [
+    {
+      "generatedAt": "2026-09-04T12:37:42.975567098Z",
+      "knowledgeBaseId": 12,
+      "nextAfterId": 12,
+      "documents": [
+        {
+          "documentId": 11,
+          "documentStatus": "READY",
+          "activeVersion": 1,
+          "consistency": "OBSERVED",
+          "database": "OBSERVED",
+          "file": {
+            "status": "OK",
+            "expectedChunks": null,
+            "observedChunks": null,
+            "retainedOtherVersionPoints": null,
+            "missingChunkIds": []
+          },
+          "qdrant": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          },
+          "lucene": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          }
+        },
+        {
+          "documentId": 12,
+          "documentStatus": "READY",
+          "activeVersion": 1,
+          "consistency": "OBSERVED",
+          "database": "OBSERVED",
+          "file": {
+            "status": "OK",
+            "expectedChunks": null,
+            "observedChunks": null,
+            "retainedOtherVersionPoints": null,
+            "missingChunkIds": []
+          },
+          "qdrant": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          },
+          "lucene": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          }
+        }
+      ]
+    },
+    {
+      "generatedAt": "2026-09-04T12:37:43.039954331Z",
+      "knowledgeBaseId": 12,
+      "nextAfterId": null,
+      "documents": [
+        {
+          "documentId": 13,
+          "documentStatus": "READY",
+          "activeVersion": 1,
+          "consistency": "OBSERVED",
+          "database": "OBSERVED",
+          "file": {
+            "status": "OK",
+            "expectedChunks": null,
+            "observedChunks": null,
+            "retainedOtherVersionPoints": null,
+            "missingChunkIds": []
+          },
+          "qdrant": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          },
+          "lucene": {
+            "status": "OK",
+            "expectedChunks": 2,
+            "observedChunks": 2,
+            "retainedOtherVersionPoints": 0,
+            "missingChunkIds": []
+          }
+        }
+      ]
+    }
+  ],
+  "modelCallsAfter": 44,
+  "generatedAt": "2026-09-04T12:37:44.7465374Z",
+  "swaggerVerified": true,
+  "modelCallsBefore": 44
+}

@@ -119,6 +119,8 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <systemPropertyVariables>
+                        <!-- 普通回归不继承本地真实服务配置；付费联调显式读取本地配置。 -->
+                        <KNOWFLOW_CONFIG_IMPORT>classpath:isolated-test.properties</KNOWFLOW_CONFIG_IMPORT>
                         <!-- 及时关闭旧测试上下文及其容器，避免本地 Docker 同时保留多套数据库。 -->
                         <spring.test.context.cache.maxSize>2</spring.test.context.cache.maxSize>
                     </systemPropertyVariables>

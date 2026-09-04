@@ -170,6 +170,7 @@ class VectorTests {
     @Autowired JdbcClient jdbc;
     @Autowired VectorTaskProcessor processor;
     @Autowired QdrantIndex index;
+    @Autowired io.github.xw66.knowflowai.observability.ExternalReconcileController reconciliation;
     @Autowired io.github.xw66.knowflowai.ingestion.Bm25TaskProcessor bm25;
     @Autowired io.github.xw66.knowflowai.retrieval.LuceneIndex lexicalIndex;
     @Autowired io.github.xw66.knowflowai.ingestion.VectorCleanupProcessor cleanup;
@@ -579,6 +580,7 @@ class VectorTests {
 
     @Test
     void refusalTruncationAndUpstreamFailureHaveDistinctResults() throws Exception {
+        assertThat(context.getEnvironment().getProperty("app.chat.fallback.enabled")).isEqualTo("false");
         long task=seed(1); processor.processNext(); indexAllBm25();
         chatOverride="{\"answer\":\"未经证实的事实\",\"citations\":[]}";
         try {
@@ -1047,6 +1049,90 @@ class VectorTests {
         due(task); processor.processNext();
         assertThat(state(task)).isEqualTo("SUCCEEDED");
         assertThat(count(task)).isEqualTo(1);
+    }
+
+    @Test
+    void externalReconciliationChecksIdentitiesFilesAndCommittedLuceneWithoutMutation() throws Exception {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        long doc=jdbc.sql("SELECT document_id FROM document_task WHERE id=:id").param("id",task).query(Long.class).single();
+        String key=jdbc.sql("SELECT storage_key FROM document WHERE id=:id").param("id",doc).query(String.class).single();
+        byte[] bytes="测试文件".getBytes(StandardCharsets.UTF_8);
+        java.nio.file.Files.write(documentDirectory.resolve(key),bytes);
+        String hash=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        jdbc.sql("UPDATE document SET sha256=:hash WHERE id=:id").param("hash",hash).param("id",doc).update();
+        var normal=reconciliation.report(base(task),0,5).getBody().documents().getFirst();
+        assertThat(normal.file().status()).isEqualTo("OK");
+        assertThat(normal.qdrant().status()).isEqualTo("OK");
+        assertThat(normal.lucene().status()).isEqualTo("OK");
+        assertThat(normal.consistency()).isEqualTo("OBSERVED");
+        index.upsert(java.util.List.of(Map.of("id",UUID.nameUUIDFromBytes((doc+":1:0").getBytes(StandardCharsets.UTF_8)).toString(),
+                "vector",new float[]{1,0,0},"payload",Map.of("document_id",doc,"knowledge_base_id",base(task),"index_version",1,"chunk_id",999999))));
+        assertThat(reconciliation.report(base(task),0,5).getBody().documents().getFirst().qdrant().status()).isEqualTo("MISMATCH");
+        lexicalIndex.replace(doc,base(task),1,java.util.List.of());
+        java.nio.file.Files.writeString(documentDirectory.resolve(key),"变更内容");
+        var changed=reconciliation.report(base(task),0,5).getBody().documents().getFirst();
+        assertThat(changed.file().status()).isEqualTo("MISMATCH");
+        assertThat(changed.lucene().status()).isEqualTo("MISSING");
+        assertThat(changed.lucene().missingChunkIds()).hasSize(1);
+        index.deleteDocument(index.collection(),doc);
+        java.nio.file.Files.delete(documentDirectory.resolve(key));
+        var missing=reconciliation.report(base(task),0,5).getBody().documents().getFirst();
+        assertThat(missing.file().status()).isEqualTo("MISSING");
+        assertThat(missing.qdrant().status()).isEqualTo("MISSING");
+        assertThat(active(task)).isEqualTo(1);
+        assertThat(state(task)).isEqualTo("SUCCEEDED");
+    }
+
+    @Test
+    void externalReconciliationDoesNotCallPausedQdrantMissing() {
+        long task=seed(1); processor.processNext();
+        QDRANT.getDockerClient().pauseContainerCmd(QDRANT.getContainerId()).exec();
+        try {
+            assertThat(reconciliation.report(base(task),0,5).getBody().documents().getFirst().qdrant().status()).isEqualTo("UNAVAILABLE");
+        } finally { QDRANT.getDockerClient().unpauseContainerCmd(QDRANT.getContainerId()).exec(); }
+        assertThat(reconciliation.report(base(task),0,5).getBody().documents().getFirst().qdrant().status()).isEqualTo("OK");
+        assertThat(active(task)).isEqualTo(1);
+    }
+
+    @Test
+    void externalReconciliationMarksConcurrentVersionChangeAndRetainsDeletedIndexes() {
+        long task=seed(1); processor.processNext(); indexAllBm25();
+        long doc=jdbc.sql("SELECT document_id FROM document_task WHERE id=:id").param("id",task).query(Long.class).single();
+        var malformed=new java.util.concurrent.atomic.AtomicBoolean();
+        var hooked=new QdrantIndex("http://"+QDRANT.getHost()+":"+QDRANT.getMappedPort(6333),"",3,"test","http://unused") {
+            @Override public JsonNode inspectDocument(String collection,long id,int limit) {
+                if(malformed.get()) return JSON.readTree("{\"status\":\"ok\",\"result\":{\"points\":[{}]}}");
+                var result=super.inspectDocument(collection,id,limit);
+                jdbc.sql("UPDATE document SET index_version=index_version+1 WHERE id=:id").param("id",id).update();
+                return result;
+            }
+        };
+        var beans=new org.springframework.beans.factory.support.StaticListableBeanFactory(Map.of("vector",hooked,"bm25",lexicalIndex));
+        var scoped=new io.github.xw66.knowflowai.observability.ExternalReconcileController(jdbc,
+                context.getBean(io.github.xw66.knowflowai.document.DocumentStorage.class),beans.getBeanProvider(QdrantIndex.class),beans.getBeanProvider(io.github.xw66.knowflowai.retrieval.LuceneIndex.class));
+        assertThat(scoped.report(base(task),0,5).getBody().documents().getFirst().consistency()).isEqualTo("CHANGED");
+        malformed.set(true);
+        assertThat(scoped.report(base(task),0,5).getBody().documents().getFirst().qdrant().status()).isEqualTo("UNAVAILABLE");
+        jdbc.sql("UPDATE document SET status='DELETED' WHERE id=:id").param("id",doc).update();
+        var deleted=reconciliation.report(base(task),0,5).getBody().documents().getFirst();
+        assertThat(deleted.qdrant().status()).isEqualTo("PENDING_CLEANUP");
+        assertThat(deleted.lucene().status()).isEqualTo("PENDING_CLEANUP");
+        assertThat(count(task)).isEqualTo(1);
+    }
+
+    @Test
+    void externalReconciliationDoesNotClaimCompleteAboveChunkLimit() {
+        long task=seed(1);
+        long doc=jdbc.sql("SELECT document_id FROM document_task WHERE id=:id").param("id",task).query(Long.class).single();
+        String rows=java.util.stream.IntStream.rangeClosed(1,2000).mapToObj(i->"(:doc,1,"+i+","+(i+1)+",'测试')").collect(java.util.stream.Collectors.joining(","));
+        jdbc.sql("INSERT INTO document_chunk(document_id,index_version,chunk_index,paragraph_number,content) VALUES "+rows).param("doc",doc).update();
+        jdbc.sql("UPDATE document SET status='READY',active_index_version=1,vector_collection=:collection WHERE id=:id")
+                .param("collection",index.collection()).param("id",doc).update();
+        jdbc.sql("UPDATE document_task SET status='SUCCEEDED' WHERE id=:id").param("id",task).update();
+        var report=reconciliation.report(base(task),0,1).getBody().documents().getFirst();
+        assertThat(report.database()).isEqualTo("PARTIAL");
+        assertThat(report.qdrant().status()).isEqualTo("PARTIAL");
+        assertThat(report.lucene().status()).isEqualTo("PARTIAL");
     }
 
     private void due(long id) { jdbc.sql("UPDATE document_task SET next_attempt_at=CURRENT_TIMESTAMP(6) WHERE id=:id").param("id", id).update(); }

@@ -123,4 +123,28 @@ public class LuceneIndex implements AutoCloseable {
 
     public record Chunk(long id, String content) {}
     public record Batch(String instanceId, List<SearchService.Candidate> candidates) {}
+
+    public Batch inspectDocument(long baseId, long documentId, int limit) throws IOException {
+        if (limit < 1 || limit > 2001) throw new IllegalArgumentException("对账上限无效");
+        // 不创建目录；目录或提交丢失与读取失败由调用者分别报告。
+        java.nio.file.Files.readAttributes(path,java.nio.file.attribute.BasicFileAttributes.class);
+        try (var readDirectory=FSDirectory.open(path)) {
+            if (!DirectoryReader.indexExists(readDirectory)) return new Batch("",List.of());
+            try (var reader=DirectoryReader.open(readDirectory)) {
+                String instance=reader.getIndexCommit().getUserData().get(INSTANCE_KEY);
+                if (instance==null) throw new IOException("索引实例标识缺失");
+                var query=new BooleanQuery.Builder()
+                        .add(new TermQuery(new Term("document_id",Long.toString(documentId))),BooleanClause.Occur.FILTER)
+                        .add(new TermQuery(new Term("knowledge_base_id",Long.toString(baseId))),BooleanClause.Occur.FILTER).build();
+                var searcher=new IndexSearcher(reader);
+                var hits=new ArrayList<SearchService.Candidate>();
+                for (var hit:searcher.search(query,limit).scoreDocs) {
+                    var stored=searcher.storedFields().document(hit.doc);
+                    hits.add(new SearchService.Candidate(stored.getField("chunk_id").numericValue().longValue(),documentId,baseId,
+                            stored.getField("index_version").numericValue().intValue(),0));
+                }
+                return new Batch(instance,List.copyOf(hits));
+            }
+        }
+    }
 }
