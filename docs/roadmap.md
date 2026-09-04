@@ -98,3 +98,5 @@ GitHub 同步：每个可运行增量通过完整回归后，提交并推送到�
 2026-09-04 项目交付材料增量：新增 `docs/project-delivery.md`，整理架构图、本地演示、证据索引和不虚构性能数字的简历描述。真实模型 HTTP/SSE 压测仍未写入任何性能结论，待有明确硬件、并发和预算记录后再补充。
 
 2026-09-04 真实低并发基线：在本地生产 Compose 入口按并发 1 完成 HTTP 检索、SSE 和异步入库实测，均无错误；结果和模型账本见 `docs/load-testing.md`、`docs/validation/2026-09-04-live-load-baseline.json`。仅作为低并发基线，不扩展为容量结论。高并发真实 SSE 与最终材料复核仍待完成。
+
+2026-09-04 最终回归复核：JDK 25 下串行完整 `verify` 通过 260 项测试（0 失败、0 错误、0 跳过），日志为 `target/final-verify-rerun.log`；单项恢复清理测试随后独立重跑通过。工作区和远端 `origin/master` 保持一致。
