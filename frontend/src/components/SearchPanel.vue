@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { reactive, shallowRef } from 'vue'
+import { onMounted, reactive, shallowRef } from 'vue'
 
 interface Hit { documentName: string; paragraphNumber?: number; pageNumber?: number; score: number; content: string }
 interface Citation { documentName: string; paragraphNumber?: number; pageNumber?: number; quote: string }
 interface DocumentItem { id: number; name: string; status: string; latestTaskStatus: string; latestTaskStage?: string; errorCode?: string; indexVersion: number }
 interface Conversation { id: number; knowledgeBaseId: number; createdAt: string }
 interface Member { userId: number; username: string; role: string; status: string }
+interface KnowledgeBase { id: number; name: string; role: string }
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ logout: [] }>()
 const form = reactive({ knowledgeBaseId: '', query: '', topK: 5 })
@@ -13,6 +14,25 @@ const hits = shallowRef<Hit[]>([]); const busy = shallowRef(false); const error 
 const selectedFile = shallowRef<File>(); const taskStatus = shallowRef(''); const answerQuestion = shallowRef(''); const answerText = shallowRef(''); const citations = shallowRef<Citation[]>([]); const answering = shallowRef(false)
 const documents = shallowRef<DocumentItem[]>([]); const conversations = shallowRef<Conversation[]>([])
 const members = shallowRef<Member[]>([]); const memberForm = reactive({ userId: '', role: 'VIEWER' })
+const knowledgeBases = shallowRef<KnowledgeBase[]>([]); const newKnowledgeBaseName = shallowRef(''); const creatingKnowledgeBase = shallowRef(false)
+
+async function loadKnowledgeBases() {
+  const response = await fetch('/api/knowledge-bases?limit=100', { headers: { Authorization: `Bearer ${props.token}` } })
+  if (response.status === 401) { emit('logout'); return }
+  if (!response.ok) throw new Error('知识库列表读取失败')
+  knowledgeBases.value = await response.json()
+  if (!knowledgeBases.value.some(base => String(base.id) === form.knowledgeBaseId)) form.knowledgeBaseId = knowledgeBases.value[0] ? String(knowledgeBases.value[0].id) : ''
+}
+async function createKnowledgeBase() {
+  if (!newKnowledgeBaseName.value.trim()) return
+  creatingKnowledgeBase.value = true; error.value = ''
+  try {
+    const response = await fetch('/api/knowledge-bases', { method: 'POST', headers: { Authorization: `Bearer ${props.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newKnowledgeBaseName.value.trim() }) })
+    if (!response.ok) throw new Error('知识库创建失败')
+    const created = await response.json(); newKnowledgeBaseName.value = ''; await loadKnowledgeBases(); form.knowledgeBaseId = String(created.id); await loadMembers()
+  } catch (cause) { error.value = cause instanceof Error ? cause.message : '知识库创建失败' }
+  finally { creatingKnowledgeBase.value = false }
+}
 
 async function search() {
   busy.value = true; error.value = ''; hits.value = []
@@ -72,12 +92,15 @@ async function ask() {
   } catch(cause) { error.value=cause instanceof Error?cause.message:'问答失败' }
   finally { answering.value=false }
 }
+
+onMounted(() => loadKnowledgeBases().catch(cause => { error.value = cause instanceof Error ? cause.message : '知识库列表读取失败' }))
 </script>
 
 <template>
   <section class="workspace">
     <header class="topbar"><div><p class="eyebrow">KNOWFLOW AI / SEARCH</p><h2>企业知识检索</h2></div><button class="ghost" @click="emit('logout')">退出登录</button></header>
-    <form class="search-card" @submit.prevent="search"><label>知识库 ID<input v-model="form.knowledgeBaseId" required inputmode="numeric" placeholder="例如 1" /></label><label class="query-field">输入问题<input v-model.trim="form.query" required placeholder="例如：如何申请知识库访问权限？" /></label><button :disabled="busy">{{ busy ? '检索中…' : '开始检索' }}</button></form>
+    <section class="base-panel"><div class="panel-title"><h3>我的知识库</h3><button class="link-button" @click="loadKnowledgeBases">刷新</button></div><div class="base-actions"><select v-model="form.knowledgeBaseId" required><option disabled value="">选择知识库</option><option v-for="base in knowledgeBases" :key="base.id" :value="String(base.id)">{{ base.name }} · {{ base.role }}</option></select><input v-model.trim="newKnowledgeBaseName" placeholder="新知识库名称" maxlength="128" /><button :disabled="creatingKnowledgeBase || !newKnowledgeBaseName.trim()" @click="createKnowledgeBase">{{ creatingKnowledgeBase ? '创建中…' : '创建知识库' }}</button></div></section>
+    <form class="search-card" @submit.prevent="search"><label class="query-field">输入问题<input v-model.trim="form.query" required placeholder="例如：如何申请知识库访问权限？" /></label><button :disabled="busy || !form.knowledgeBaseId">{{ busy ? '检索中…' : '开始检索' }}</button></form>
     <section class="tool-row"><label class="upload-label">上传文档<input type="file" accept=".pdf,.md,.markdown,.docx,.txt,text/plain,application/pdf" @change="selectFile" /></label><button class="secondary" :disabled="!selectedFile || !form.knowledgeBaseId" @click="upload">上传并处理</button><button class="secondary" :disabled="!form.knowledgeBaseId" @click="loadDocuments">刷新文档</button><span v-if="taskStatus" class="muted">{{ taskStatus }}</span></section>
     <section v-if="documents.length" class="document-panel"><div class="panel-title"><h3>文档治理</h3><small>{{ documents.length }} 个文档</small></div><div v-for="document in documents" :key="document.id" class="document-row"><span class="status-dot" :class="document.status.toLowerCase()"></span><strong>{{ document.name }}</strong><small>v{{ document.indexVersion }} · {{ document.latestTaskStatus }}<template v-if="document.latestTaskStage">/{{ document.latestTaskStage }}</template></small><small v-if="document.errorCode" class="error">{{ document.errorCode }}</small></div></section>
     <section class="member-panel"><div class="panel-title"><h3>成员权限</h3><button class="link-button" @click="loadMembers">刷新</button></div><form class="member-form" @submit.prevent="saveMember"><input v-model.trim="memberForm.userId" required inputmode="numeric" placeholder="用户 ID" /><select v-model="memberForm.role"><option value="VIEWER">VIEWER · 只读</option><option value="EDITOR">EDITOR · 可编辑</option></select><button :disabled="!form.knowledgeBaseId">授权</button></form><div v-for="member in members" :key="member.userId" class="document-row"><strong>{{ member.username }}</strong><small>{{ member.role }} · {{ member.status }}</small><button v-if="member.role !== 'OWNER'" class="remove-button" @click="removeMember(member.userId)">移除</button></div><p v-if="!members.length" class="muted">点击刷新查看知识库成员</p></section>
