@@ -102,6 +102,7 @@ class KnowFlowAiApplicationTests {
         assertThat(body.at("/properties/file/type").asText()).isEqualTo("string");
         assertThat(body.at("/properties/file/format").asText()).isEqualTo("binary");
         var schemas=api.at("/components/schemas");
+        assertThat(schemas.at("/CredentialsRequest/properties/password/minLength").asInt()).isEqualTo(8);
         assertThat(schemas.at("/SearchRequest/properties/query/maxLength").asInt()).isEqualTo(2000);
         assertThat(schemas.at("/SearchRequest/properties/topK/maximum").asInt()).isEqualTo(20);
         assertThat(schemas.at("/AnswerRequest/properties/topK/maximum").asInt()).isEqualTo(8);
@@ -197,7 +198,7 @@ class KnowFlowAiApplicationTests {
             "{\"username\":\"ab\",\"password\":\"test_password_123\"}",
             "{\"username\":\"bad-name\",\"password\":\"test_password_123\"}",
             "{\"username\":\" bad_name \",\"password\":\"test_password_123\"}",
-            "{\"username\":\"valid_name\",\"password\":\"shortsecret\"}",
+            "{\"username\":\"valid_name\",\"password\":\"short7x\"}",
             "{\"username\":\"valid_name\",\"password\":\"            \"}",
             "{\"username\":\"valid_name\",\"password\":\"test_password_123\",\"role\":\"ADMIN\"}",
             "{\"username\":\"valid_name\",\"password\":\"test_password_123\",\"systemRole\":\"ADMIN\"}",
@@ -208,7 +209,7 @@ class KnowFlowAiApplicationTests {
         var response = post(json);
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(response.headers().firstValue("Content-Type").orElseThrow()).contains("application/problem+json");
-        assertThat(response.body()).doesNotContain("test_password_123", "shortsecret", "SECRET_UNFINISHED", "stackTrace");
+        assertThat(response.body()).doesNotContain("test_password_123", "short7x", "SECRET_UNFINISHED", "stackTrace");
         assertThat(jdbcClient.sql("SELECT COUNT(*) FROM app_user").query(Integer.class).single()).isEqualTo(before);
     }
 

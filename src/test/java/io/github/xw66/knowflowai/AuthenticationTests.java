@@ -170,13 +170,21 @@ class AuthenticationTests {
 
     @Test
     void invalidLoginInputIsRejectedWithoutExposingPassword() throws Exception {
-        for (var password : List.of("short", "密".repeat(25), "a".repeat(73))) {
+        for (var password : List.of("short", "1234567", "密".repeat(25), "a".repeat(73))) {
             var response = login("valid_username", password);
             assertProblem(response, 400);
             assertThat(response.body()).doesNotContain(password);
         }
         assertProblem(send("POST", "/api/auth/login", "{}", null), 400);
         assertProblem(send("POST", "/api/auth/login", "{\"username\":\"valid_name\",\"password\":\"test_password_123\",\"role\":\"ADMIN\"}", null), 400);
+    }
+
+    @Test
+    void eightCharacterPasswordRegistersAndLogsInButSevenIsRejected() throws Exception {
+        String username = "length_" + UUID.randomUUID().toString().replace("-", "");
+        assertProblem(send("POST", "/api/auth/register", credentials(username, "Ab12345"), null), 400);
+        assertThat(send("POST", "/api/auth/register", credentials(username, "Ab123456"), null).statusCode()).isEqualTo(201);
+        assertThat(login(username, "Ab123456").statusCode()).isEqualTo(200);
     }
 
     @Test

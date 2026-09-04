@@ -62,7 +62,7 @@ Invoke-RestMethod http://localhost:8080/api/auth/register -Method Post -ContentT
 成功返回 HTTP 201，例如 `{"id":1,"username":"alice_01","role":"USER"}`。ID 为数据库生成的实际值，不返回密码、哈希或 JWT。
 
 - 用户名：3–64 位英文字母、数字或下划线；不接受空格；统一小写存储，大小写视为同名。
-- 密码：12–72 个 Java 字符单元，同时 UTF-8 编码不超过 72 字节；不修剪、不截断。BCrypt 使用独立随机盐，保存带 `{bcrypt}` 标识的哈希。
+- 密码：8–72 个 Java 字符单元，同时 UTF-8 编码不超过 72 字节；不修剪、不截断。BCrypt 使用独立随机盐，保存带 `{bcrypt}` 标识的哈希。
 - 新用户固定 USER / ACTIVE；未知字段（包括 role、systemRole）返回 400。
 - 用户名冲突返回 409，格式错误返回 400，数据库操作失败返回脱敏的 503。并发重复注册由 MySQL 唯一索引保证只有一条记录。
 
