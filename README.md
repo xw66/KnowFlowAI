@@ -4,7 +4,11 @@
 
 已实现：HTTP 健康检查、MySQL / Flyway 迁移、用户注册与登录、BCrypt 密码哈希、JWT 鉴权、系统 RBAC、知识库与成员权限、文件上传、文档任务与事务 Outbox、Kafka 可靠投递与 Worker 幂等接收、参数校验、唯一约束、ProblemDetail 错误响应及 JSON 结构化日志。
 
-已实现权限向量检索、BM25、Hybrid / RRF、可选 Rerank、同步与 SSE 证据问答、真实模型连通性验证、Swagger、文档管理及异步删除清理。已接入会话持久化、可选查询改写、模型超时及可选 Fallback、可选的 [知识库与任务状态缓存](docs/cache-design.md)，以及默认启用的 [原子接口限流](docs/rate-limit-design.md) 和 [Redis 请求幂等协调](docs/idempotency-design.md)。调用统计与完整应用 Compose 尚待实施；完整进度见 [实施进度](docs/roadmap.md)。当前 Compose 包含 MySQL、Redis、Kafka 与 Qdrant。Worker 接收后任务为 PENDING / QUEUED；四种文件提取正文并分块后为 PENDING / CHUNKED；启用 Embedding 后继续向量入库。
+已实现权限向量检索、BM25、Hybrid / RRF、可选 Rerank、同步与 SSE 证据问答、真实模型连通性验证、Swagger、文档管理及异步删除清理。已接入会话持久化、可选查询改写、模型超时及可选 Fallback、可选的 [知识库与任务状态缓存](docs/cache-design.md)，以及默认启用的 [原子接口限流](docs/rate-limit-design.md) 和 [Redis 请求幂等协调](docs/idempotency-design.md)。调用统计、预算保护和前后端 Compose 已实现；完整进度见 [实施进度](docs/roadmap.md)，一键部署步骤见 [本地部署](docs/local-deployment.md)。Compose 包含 Vue/Nginx、API、Worker、MySQL、Redis、Kafka 与 Qdrant。Worker 接收后任务为 PENDING / QUEUED；四种文件提取正文并分块后为 PENDING / CHUNKED；启用 Embedding 后继续向量入库。
+
+## Docker 一键运行
+
+配置本地 `.env` 后执行 `docker compose --profile app up -d --build --wait --wait-timeout 180`，打开 http://127.0.0.1:8088 。完整配置、SSE 代理和隔离验收见 [本地部署](docs/local-deployment.md)。
 
 ## 环境与启动
 

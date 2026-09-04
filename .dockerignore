@@ -1,0 +1,9 @@
+.git
+.env
+.env.*
+.data
+target
+frontend
+docs
+scripts
+.idea

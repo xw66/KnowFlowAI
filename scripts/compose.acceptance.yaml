@@ -1,0 +1,37 @@
+services:
+  model-fixture:
+    image: node:24-alpine
+    command: ["node", "/fixture.mjs"]
+    volumes:
+      - ./scripts/model-fixture.mjs:/fixture.mjs:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8000/health"]
+      interval: 5s
+      retries: 10
+  api:
+    environment:
+      EMBEDDING_ENABLED: "true"
+      EMBEDDING_BASE_URL: http://model-fixture:8000/v1
+      EMBEDDING_API_KEY: fixture
+      EMBEDDING_MODEL: fixture-embedding
+      EMBEDDING_DIMENSIONS: 3
+      CHAT_ENABLED: "true"
+      CHAT_BASE_URL: http://model-fixture:8000/v1
+      CHAT_API_KEY: fixture
+      CHAT_MODEL: fixture-chat
+      CHAT_FALLBACK_ENABLED: "false"
+      BM25_ENABLED: "true"
+      MODEL_BUDGET_ENABLED: "false"
+    depends_on:
+      model-fixture: { condition: service_healthy }
+  worker:
+    environment:
+      EMBEDDING_ENABLED: "true"
+      EMBEDDING_BASE_URL: http://model-fixture:8000/v1
+      EMBEDDING_API_KEY: fixture
+      EMBEDDING_MODEL: fixture-embedding
+      EMBEDDING_DIMENSIONS: 3
+      BM25_ENABLED: "true"
+      MODEL_BUDGET_ENABLED: "false"
+    depends_on:
+      model-fixture: { condition: service_healthy }

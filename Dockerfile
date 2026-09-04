@@ -9,6 +9,9 @@ RUN ./mvnw -B -ntp -DskipTests package
 FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY --from=build /workspace/target/KnowFlowAI-0.0.1-SNAPSHOT.jar app.jar
+COPY healthcheck.sh /app/healthcheck.sh
+RUN sed -i 's/\r$//' /app/healthcheck.sh
 RUN mkdir -p /data/documents /data/lucene
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=6 CMD ["bash", "/app/healthcheck.sh"]
 EXPOSE 8080
 ENTRYPOINT ["java","-jar","/app/app.jar"]
