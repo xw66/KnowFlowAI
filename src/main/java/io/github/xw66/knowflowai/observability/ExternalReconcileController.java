@@ -84,6 +84,46 @@ public class ExternalReconcileController {
                 listed.more() ? result.getLast().key() : null,List.copyOf(result)));
     }
 
+    @GetMapping("/vectors")
+    @io.swagger.v3.oas.annotations.Operation(summary="分页扫描 Qdrant 向量孤立项",description="管理员只读扫描明确指定的集合，每页最多 100 个点。只读取定位 payload，不读取向量值；ORPHAN 表示文档不存在，RETAINED 表示旧版本或已删除文档仍有外部点，UNAVAILABLE/INVALID_PAYLOAD 不解释为数据丢失。不自动清理。")
+    public ResponseEntity<VectorPage> vectors(@RequestParam String collection,
+            @RequestParam(defaultValue="") String offset,@RequestParam(defaultValue="100") @Min(1) @Max(100) int limit) {
+        if(!collection.matches("knowflow_[a-f0-9]{32}")) throw new IllegalArgumentException("向量集合名称无效");
+        if(vector.getIfAvailable()==null) return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new VectorPage(Instant.now(),"NOT_CONFIGURED",null,List.of()));
+        final tools.jackson.databind.JsonNode response;
+        try { response=vector.getObject().scroll(collection,offset,limit); }
+        catch(Exception error) { return ResponseEntity.status(503).cacheControl(CacheControl.noStore())
+                .body(new VectorPage(Instant.now(),"UNAVAILABLE",null,List.of())); }
+        if(response==null || !"ok".equals(response.path("status").asText()) || !response.path("result").path("points").isArray())
+            return ResponseEntity.status(503).cacheControl(CacheControl.noStore()).body(new VectorPage(Instant.now(),"UNAVAILABLE",null,List.of()));
+        var points=response.path("result").path("points");
+        boolean more=points.size()>limit || !response.path("result").path("next_page_offset").isNull()
+                && !response.path("result").path("next_page_offset").isMissingNode();
+        var results=new ArrayList<VectorPoint>();
+        for(int i=0;i<Math.min(points.size(),limit);i++) {
+            var point=points.get(i); var payload=point.path("payload");
+            if(!payload.path("document_id").isIntegralNumber() || !payload.path("knowledge_base_id").isIntegralNumber()
+                    || !payload.path("index_version").isIntegralNumber() || !payload.path("chunk_id").isIntegralNumber()) {
+                results.add(new VectorPoint(point.path("id").asText(),null,null,null,"INVALID_PAYLOAD")); continue;
+            }
+            long documentId=payload.path("document_id").asLong();
+            var document=jdbc.sql("SELECT status,active_index_version,vector_collection FROM document WHERE id=:id")
+                    .param("id",documentId).query(VectorDocument.class).optional();
+            String status=document.isEmpty()?"ORPHAN"
+                    : document.get().status().equals("READY") && Objects.equals(document.get().activeIndexVersion(),payload.path("index_version").asInt())
+                        && collection.equals(document.get().vectorCollection()) ? "REGISTERED_ACTIVE" : "RETAINED";
+            results.add(new VectorPoint(point.path("id").asText(),documentId,payload.path("knowledge_base_id").asLong(),payload.path("index_version").asInt(),status));
+        }
+        String next=null;
+        if(more) {
+            var apiOffset=response.path("result").path("next_page_offset");
+            next=!apiOffset.isMissingNode() && !apiOffset.isNull() ? apiOffset.asText()
+                    : points.get(Math.min(points.size(),limit)-1).path("id").asText();
+        }
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(new VectorPage(Instant.now(),"OK",next,List.copyOf(results)));
+    }
+
     private Check checkFile(Snapshot doc) {
         try {
             String digest=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(storage.read(doc.storageKey())));
@@ -153,7 +193,10 @@ public class ExternalReconcileController {
     public record Page(Instant generatedAt,long knowledgeBaseId,Long nextAfterId,List<DocumentCheck> documents) {}
     public record FilePage(Instant generatedAt,String storageStatus,String nextAfterKey,List<FileResult> files) {}
     public record FileResult(String key,String status,Long sizeBytes,Long documentId,String documentStatus) {}
+    public record VectorPage(Instant generatedAt,String scanStatus,String nextOffset,List<VectorPoint> points) {}
+    public record VectorPoint(String pointId,Long documentId,Long knowledgeBaseId,Integer indexVersion,String status) {}
     private record Chunk(long id,int chunkIndex) {}
     private record Snapshot(long id,String status,int indexVersion,Integer activeIndexVersion,String vectorCollection,String storageKey,String sha256,Integer bm25Version,String instanceId,String bm25Status) {}
     private record DocumentRef(long id,String status) {}
+    private record VectorDocument(String status,Integer activeIndexVersion,String vectorCollection) {}
 }

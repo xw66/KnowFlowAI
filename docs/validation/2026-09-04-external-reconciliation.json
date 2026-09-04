@@ -1,9 +1,337 @@
 {
-  "generatedAt": "2026-09-04T12:52:57.3764153Z",
+  "vectors": {
+    "generatedAt": "2026-09-04T13:05:38.158161431Z",
+    "scanStatus": "OK",
+    "nextOffset": null,
+    "points": [
+      {
+        "pointId": "05a47ac6-20d0-31ab-9836-005ead6a88bf",
+        "documentId": 9,
+        "knowledgeBaseId": 10,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "0bcad6ed-5367-37f6-81f6-e7cd3ed878cc",
+        "documentId": 9,
+        "knowledgeBaseId": 10,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "1221ac5e-f2b2-3a2f-9d46-41e04ff33749",
+        "documentId": 6,
+        "knowledgeBaseId": 6,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "1516e909-4579-3c4b-96d4-9fb12c69fa3a",
+        "documentId": 3,
+        "knowledgeBaseId": 3,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "1dc2110f-da7f-3202-8739-fdac54d329a8",
+        "documentId": 4,
+        "knowledgeBaseId": 4,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "23b365c3-226c-3d55-b2ed-90a320ffccc2",
+        "documentId": 10,
+        "knowledgeBaseId": 11,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "28e6db21-43ec-3a65-8c68-f9a9bf52fc85",
+        "documentId": 10,
+        "knowledgeBaseId": 11,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "32af3ad0-196b-318b-9a9b-a7159e4618cc",
+        "documentId": 8,
+        "knowledgeBaseId": 9,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "332b4f13-4a68-3853-9e6c-fd33a138a74b",
+        "documentId": 5,
+        "knowledgeBaseId": 5,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "3334bd4b-630f-3466-ae4c-316da13f2d76",
+        "documentId": 3,
+        "knowledgeBaseId": 3,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "3407222f-bfca-3875-9f61-8128a0f042b7",
+        "documentId": 11,
+        "knowledgeBaseId": 12,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "3f1da8ba-d9d9-36f5-9898-e4ca9aa9e5c3",
+        "documentId": 2,
+        "knowledgeBaseId": 2,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "4cf9ea69-3b7b-3922-b83a-ee7c5e361c98",
+        "documentId": 7,
+        "knowledgeBaseId": 7,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "5a9e5926-00f8-3df6-a4ce-5b6b5e996ec9",
+        "documentId": 8,
+        "knowledgeBaseId": 9,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "6b0e4418-d6a8-3970-b0f0-2fd0848359fb",
+        "documentId": 13,
+        "knowledgeBaseId": 12,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "6b3bc692-4e84-397f-9931-9ee4d0f5e741",
+        "documentId": 6,
+        "knowledgeBaseId": 6,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "6baf2f17-06eb-37ec-8f1a-6b43cb2ba8ea",
+        "documentId": 5,
+        "knowledgeBaseId": 5,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "755ee660-8c2a-366d-b597-4bc05651c001",
+        "documentId": 8,
+        "knowledgeBaseId": 9,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "75c803b6-4c90-3f76-94cd-76a98a816920",
+        "documentId": 4,
+        "knowledgeBaseId": 4,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "7641aed8-2d59-394c-9976-9c6734729a50",
+        "documentId": 2,
+        "knowledgeBaseId": 2,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "796cce6a-7708-3062-94d4-1f44b3f7879d",
+        "documentId": 13,
+        "knowledgeBaseId": 12,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "7a99f378-d03a-39e3-b798-15b63e3df65a",
+        "documentId": 11,
+        "knowledgeBaseId": 12,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "7cd75e5a-79a7-3511-bb00-b5c0378b267e",
+        "documentId": 4,
+        "knowledgeBaseId": 4,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "847b655d-d3c6-3ff9-8272-c78ed262a547",
+        "documentId": 7,
+        "knowledgeBaseId": 7,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "87f32435-5106-3e68-8884-55a144a5a0d7",
+        "documentId": 7,
+        "knowledgeBaseId": 7,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "87fc44f8-13c4-3cf5-af41-726403467ffa",
+        "documentId": 8,
+        "knowledgeBaseId": 9,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "90b194dc-546b-32e9-bec8-e7b823c8cc45",
+        "documentId": 12,
+        "knowledgeBaseId": 12,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "9168d709-0a84-3f02-aaa6-c072d7202ad4",
+        "documentId": 9,
+        "knowledgeBaseId": 10,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "93042abc-9062-3145-8a91-7542898458c4",
+        "documentId": 6,
+        "knowledgeBaseId": 6,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "941f3a5d-71c8-3b00-acb3-7b1e1318b1b4",
+        "documentId": 2,
+        "knowledgeBaseId": 2,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "a5a5a340-84ad-376c-a747-0dbb85b8ba1c",
+        "documentId": 10,
+        "knowledgeBaseId": 11,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "acb77b8f-963b-3f28-88e5-f4bcb8f3d763",
+        "documentId": 12,
+        "knowledgeBaseId": 12,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "afc2dc75-e343-3ebe-8622-69dbd046d999",
+        "documentId": 10,
+        "knowledgeBaseId": 11,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "b3ed07d5-6e9c-3c5a-9a9b-6567f336920a",
+        "documentId": 3,
+        "knowledgeBaseId": 3,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "b6e6272d-5228-3320-b2bb-bef87bb69583",
+        "documentId": 9,
+        "knowledgeBaseId": 10,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "c4faaa70-bc6b-3ce8-b62c-1d90361869db",
+        "documentId": 1,
+        "knowledgeBaseId": 1,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "cfa73a9c-a9e8-3614-8821-e8ca7b793338",
+        "documentId": 5,
+        "knowledgeBaseId": 5,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "de0e0b27-8b4b-3aff-bbc0-6e06472f9739",
+        "documentId": 4,
+        "knowledgeBaseId": 4,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "e32a0a7c-5738-3db3-a492-41397f55efd0",
+        "documentId": 6,
+        "knowledgeBaseId": 6,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "e640e465-0744-333c-b5c5-067e0b5cd79d",
+        "documentId": 2,
+        "knowledgeBaseId": 2,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "f34ead07-f2e7-3929-91df-43e16672ea18",
+        "documentId": 1,
+        "knowledgeBaseId": 1,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "f76d7db5-7a7e-37ec-b37b-1f940bd8dd33",
+        "documentId": 7,
+        "knowledgeBaseId": 7,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "f7952048-cf73-3263-852c-f5be0c0ba987",
+        "documentId": 5,
+        "knowledgeBaseId": 5,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "f83f92ed-c7cc-3d86-8c51-80d7466a1745",
+        "documentId": 1,
+        "knowledgeBaseId": 1,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "f99f6a40-352f-3b62-b224-fc46cbbe15f7",
+        "documentId": 3,
+        "knowledgeBaseId": 3,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      },
+      {
+        "pointId": "feb22362-d114-351f-80fd-53b401277bd1",
+        "documentId": 1,
+        "knowledgeBaseId": 1,
+        "indexVersion": 1,
+        "status": "REGISTERED_ACTIVE"
+      }
+    ]
+  },
   "modelCallsBefore": 44,
-  "modelCallsAfter": 44,
+  "generatedAt": "2026-09-04T13:05:38.7759367Z",
   "files": {
-    "generatedAt": "2026-09-04T12:52:56.758711535Z",
+    "generatedAt": "2026-09-04T13:05:37.462954835Z",
     "storageStatus": "OK",
     "nextAfterKey": null,
     "files": [
@@ -89,7 +417,7 @@
   "swaggerVerified": true,
   "pages": [
     {
-      "generatedAt": "2026-09-04T12:52:55.592958991Z",
+      "generatedAt": "2026-09-04T13:05:36.148760833Z",
       "knowledgeBaseId": 12,
       "nextAfterId": 12,
       "documents": [
@@ -152,7 +480,7 @@
       ]
     },
     {
-      "generatedAt": "2026-09-04T12:52:55.669098993Z",
+      "generatedAt": "2026-09-04T13:05:36.226063282Z",
       "knowledgeBaseId": 12,
       "nextAfterId": null,
       "documents": [
@@ -186,5 +514,6 @@
         }
       ]
     }
-  ]
+  ],
+  "modelCallsAfter": 44
 }

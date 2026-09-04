@@ -1095,6 +1095,18 @@ class VectorTests {
     }
 
     @Test
+    void vectorOrphanScanClassifiesMissingDocumentsAndCurrentPoints() {
+        long task=seed(1); processor.processNext();
+        long doc=jdbc.sql("SELECT document_id FROM document_task WHERE id=:id").param("id",task).query(Long.class).single();
+        index.upsert(java.util.List.of(Map.of("id",UUID.randomUUID().toString(),"vector",new float[]{1,0,0},
+                "payload",Map.of("document_id",999999999L,"knowledge_base_id",999999999L,"index_version",1,"chunk_id",999999999L))));
+        var page=reconciliation.vectors(index.collection(),"",100).getBody();
+        assertThat(page.scanStatus()).isEqualTo("OK");
+        assertThat(page.points()).anyMatch(point -> point.status().equals("ORPHAN") && point.documentId()==999999999L);
+        assertThat(page.points()).anyMatch(point -> point.status().equals("REGISTERED_ACTIVE") && point.documentId()==doc);
+    }
+
+    @Test
     void externalReconciliationMarksConcurrentVersionChangeAndRetainsDeletedIndexes() {
         long task=seed(1); processor.processNext(); indexAllBm25();
         long doc=jdbc.sql("SELECT document_id FROM document_task WHERE id=:id").param("id",task).query(Long.class).single();

@@ -10,7 +10,7 @@
 |---|---|
 | OK | 本次检查范围内一致，不代表模型语义或全文内容质量已验证 |
 | MISSING / MISSING_CHUNKS | 读取成功但预期文件或分块缺失；确认报告仍有效后，按文档调用现有重新索引接口 |
-| MISMATCH / INSTANCE_MISMATCH | 摘要、分块身份、实例不匹配；先确认卷和实例配置，禁止盲删 |
+| MISMATCH / INSTANCE_MISMATCH / INVALID_PAYLOAD | 摘要、分块身份、实例或向量定位 payload 不匹配；先确认卷和实例配置，禁止盲删 |
 | MISSING_COLLECTION_METADATA | 激活文档缺少向量集合元数据 |
 | UNAVAILABLE | 网络、访问权限、目录访问或响应异常，不能解释为数据丢失；恢复服务后重查 |
 | NOT_CONFIGURED | 当前进程未配置该索引检查组件 |
@@ -29,10 +29,12 @@
 
 文件目录扫描：`GET /api/admin/reconcile/documents/files?limit=50&afterKey=`。只扫描配置目录的直属项，按文件名游标分页；`REGISTERED` 会返回对应文档 ID，`ORPHAN` 是数据库没有登记的普通文件，`TEMPORARY` 是未完成上传的临时文件。目录读取失败返回 503 和 `storageStatus=UNAVAILABLE`，不会把故障当成孤立文件。符号链接、目录和特殊文件单独标记，后续人工核验。
 
+向量点扫描：`GET /api/admin/reconcile/documents/vectors?collection=knowflow_<collection-id>&limit=100&offset=`。必须显式指定集合，按 Qdrant 游标分页，读取定位 payload 而不读取向量值。`REGISTERED_ACTIVE` 表示当前文档和版本匹配，`ORPHAN` 表示文档不存在，`RETAINED` 表示旧版本、已删除文档或其他集合中的保留点；无效 payload 和服务故障分别报告。该扫描不遍历未指定的集合，也不执行清理。
+
 ## 自动验证
 
-专项命令：`./mvnw.cmd '-Dtest=ReconcileTests,VectorTests#externalReconciliation*' test`。覆盖真实 MySQL 权限及分页、真实 Qdrant 身份不一致与暂停恢复、Lucene 提交缺失、文件摘要变化、删除保留、并发版本变化、检查上限和文件目录分页分类；异常响应结构使用本地替身验证。
+专项命令：`./mvnw.cmd '-Dtest=ReconcileTests,VectorTests#externalReconciliation*,VectorTests#vectorOrphanScanClassifiesMissingDocumentsAndCurrentPoints' test`。覆盖真实 MySQL 权限及分页、真实 Qdrant 身份不一致、暂停恢复和孤立点分类、Lucene 提交缺失、文件摘要变化、删除保留、并发版本变化、检查上限和文件目录分页分类；异常响应结构使用本地替身验证。
 
 完整回归使用 `./mvnw.cmd verify`。Surefire 通过 `KNOWFLOW_CONFIG_IMPORT` 将导入目标设为受版本控制的 `isolated-test.properties`，避免本地 `.env` 的备用模型开关等配置污染普通测试。将 `spring.config.import` 系统属性置空不足以阻止配置文件自身的导入声明，因此直接参数化导入位置。此前的完整回归曾因此多调用一次本地替身，失败断言保留；不放宽调用次数要求。IDE 中应通过该 Maven 命令运行相同验收配置。显式 `LiveFallbackIT` 自行读取 `.env`，仍属独立付费联调，不会进入普通回归。
 
-2026-09-04：最终 JDK 25 `verify` 通过 258 项测试（0 失败、0 跳过），日志 `target/orphan-file-regression.log`。API/Worker 镜像重建和保留数据重启后，生产 Nginx 入口的 3 篇合成文档分为 2 页，文件、Qdrant 和 Lucene 均为 OK，直属目录扫描返回 11 项，Swagger 路径存在；模型调用账本仍为 44 条，没有新增模型调用。临时验收账号已撤销管理员权限并禁用。脱敏响应见 [生产验收记录](validation/2026-09-04-external-reconciliation.json)。
+2026-09-04：最终 JDK 25 `verify` 通过 259 项测试（0 失败、0 跳过），日志 `target/vector-orphan-regression.log`。API/Worker 镜像重建和保留数据重启后，生产 Nginx 入口的 3 篇合成文档分为 2 页，文件、Qdrant 和 Lucene 均为 OK，直属目录扫描返回 11 项，指定向量集合扫描返回 46 项，Swagger 路径存在；模型调用账本仍为 44 条，没有新增模型调用。临时验收账号已撤销管理员权限并禁用。脱敏响应见 [生产验收记录](validation/2026-09-04-external-reconciliation.json)。
