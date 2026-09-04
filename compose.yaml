@@ -79,6 +79,9 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: api
       DB_URL: jdbc:mysql://mysql:3306/knowflow?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+      DB_USERNAME: knowflow
+      DB_PASSWORD: ${DB_PASSWORD:?请设置 DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?请设置 JWT_SECRET}
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       QDRANT_URL: http://qdrant:6333
@@ -101,6 +104,9 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: worker
       DB_URL: jdbc:mysql://mysql:3306/knowflow?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+      DB_USERNAME: knowflow
+      DB_PASSWORD: ${DB_PASSWORD:?请设置 DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?请设置 JWT_SECRET}
       REDIS_HOST: redis
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       QDRANT_URL: http://qdrant:6333
