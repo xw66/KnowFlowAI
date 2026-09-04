@@ -23,7 +23,7 @@
 | 17 完整 Compose | 已完成 | API、Worker、MySQL、Redis、Kafka、Qdrant；共享文档/Lucene 卷，镜像构建和保留数据启动健康检查通过 |
 | 18 评测与简历材料 | 部分完成 | `scripts/evaluate.ps1` 已提供 Vector/BM25/Hybrid 的 Recall@5、MRR、nDCG@5 和原始 JSON；当前仅 1 条演示样本，不能作为质量结论，Rerank 待真实启用后评测 |
 
-前端进度：Vue 3 + TypeScript + Vite 已完成登录/注册、JWT 会话、知识库 Hybrid 搜索、引用展示、文档上传、任务轮询、文档列表、会话历史、SSE 问答和成员管理；`vue-tsc --noEmit && vite build` 通过，Vite 开发服务器 HTTP 200。下一步进行前端完整验收与交互收敛。
+前端进度：Vue 3 + TypeScript + Vite 已完成登录/注册、JWT 会话、知识库创建与选择、Hybrid 搜索、引用展示、文档上传/重处理/删除、任务轮询、文档列表、会话历史、SSE 问答、流式取消和成员管理；`vue-tsc --noEmit && vite build` 通过，Vite 开发服务器 HTTP 200。下一步进行前端完整验收与交互收敛。
 
 后续执行约束：新增真实模型联调与评测累计上限为 20 元，日常测试使用本地协议替身。先完成第 15 项的调用统计与版本价格记录，再运行新的付费验证；每批先预留费用上界，无法确定上界或额度不足时停止付费调用。需补齐真实问答、SSE、改写和备用模型验证，不将自动测试等同于真实模型效果。第 14 项依次拆为限流和请求幂等，第 16 项先只读报告再限定范围修复；仍不加入 Vue、OCR、多机 Lucene 或微服务拆分。
 
