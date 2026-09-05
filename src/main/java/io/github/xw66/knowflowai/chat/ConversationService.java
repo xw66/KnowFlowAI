@@ -150,7 +150,7 @@ public class ConversationService {
         return jdbc.sql("""
                 SELECT c.id,c.knowledge_base_id,c.created_at FROM conversation c
                 JOIN knowledge_base b ON b.id=c.knowledge_base_id
-                JOIN knowledge_member m ON m.knowledge_base_id=b.id AND m.user_id=c.user_id
+                JOIN knowledge_access m ON m.knowledge_base_id=b.id AND m.user_id=c.user_id
                 JOIN app_user u ON u.id=c.user_id
                 WHERE c.user_id=:user AND b.status='ACTIVE' AND u.status='ACTIVE' AND c.id>:after ORDER BY c.id LIMIT :limit
                 """).param("user",user).param("after",after).param("limit",limit).query(Conversation.class).list();

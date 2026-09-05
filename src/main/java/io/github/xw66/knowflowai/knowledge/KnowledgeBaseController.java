@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -37,8 +38,9 @@ public class KnowledgeBaseController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public KnowledgeBaseService.KnowledgeBaseView create(@AuthenticationPrincipal Account account,
-            @Valid @RequestBody NameRequest request) {
-        return service.create(account.id(), request.name());
+            @Valid @RequestBody CreateRequest request) {
+        return service.create(account.id(), request.name(), request.visibility() == null ? "PRIVATE" : request.visibility(),
+                request.departmentIds() == null ? List.of() : request.departmentIds());
     }
 
     @GetMapping
@@ -85,6 +87,24 @@ public class KnowledgeBaseController {
     public record NameRequest(
             @NotBlank(message = "知识库名称不能为空") @Size(max = 128, message = "知识库名称不能超过 128 个字符") String name) {
     }
+
+    @GetMapping("/{id}/sharing")
+    public KnowledgeBaseService.Sharing sharing(@AuthenticationPrincipal Account account, @PathVariable @Positive long id) {
+        return service.sharing(account.id(), id);
+    }
+
+    @PutMapping("/{id}/sharing")
+    public KnowledgeBaseService.Sharing setSharing(@AuthenticationPrincipal Account account, @PathVariable @Positive long id,
+            @Valid @RequestBody SharingRequest request) {
+        return service.setSharing(account.id(), id, request.visibility(), request.departmentIds());
+    }
+
+    public record SharingRequest(@NotNull @Pattern(regexp = "PRIVATE|ALL|DEPARTMENTS") String visibility,
+            @NotNull @Size(max = 100) List<@NotNull @Positive Long> departmentIds) {}
+
+    public record CreateRequest(@NotBlank @Size(max = 128) String name,
+            @Pattern(regexp = "PRIVATE|ALL|DEPARTMENTS") String visibility,
+            @Size(max = 100) List<@NotNull @Positive Long> departmentIds) {}
 
     public record MemberRequest(
             @NotBlank(message = "成员角色不能为空") @Pattern(regexp = "EDITOR|VIEWER", message = "成员角色只能为 EDITOR 或 VIEWER") String role) {

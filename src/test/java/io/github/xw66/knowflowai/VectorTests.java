@@ -813,7 +813,7 @@ class VectorTests {
         jdbc.sql("UPDATE document SET vector_collection=:collection WHERE id=:id").param("collection",previousIndex.collection()).param("id",document).update();
         documents.delete(owner(task),base(task),document);
         assertThat(jdbc.sql("SELECT COUNT(*) FROM vector_cleanup WHERE document_id=:id").param("id",document).query(Integer.class).single()).isEqualTo(2);
-        jdbc.sql("UPDATE vector_cleanup SET lease_token=:token,available_at=TIMESTAMPADD(SECOND,-1,CURRENT_TIMESTAMP(6)) WHERE document_id=:id")
+        jdbc.sql("UPDATE vector_cleanup SET lease_token=:token,available_at='1970-01-01 00:00:00' WHERE document_id=:id")
                 .param("token",UUID.randomUUID().toString()).param("id",document).update();
         cleanup.processNext(); cleanup.processNext();
         assertThat(count(task)).isZero();
@@ -839,8 +839,8 @@ class VectorTests {
         int before = calls;
         assertThat(request(base, owner(other), "{\"query\":\"测试\"}").statusCode()).isEqualTo(404);
         jdbc.sql("UPDATE app_user SET system_role='ADMIN' WHERE id=:id").param("id",owner(other)).update();
-        assertThat(request(base, owner(other), "{\"query\":\"测试\"}").statusCode()).isEqualTo(404);
-        assertThat(calls).isEqualTo(before);
+        assertThat(request(base, owner(other), "{\"query\":\"测试\"}").statusCode()).isEqualTo(200);
+        assertThat(calls).isEqualTo(before + 1);
         assertThat(index.search(new float[]{0.1f,1.1f,2.1f}, base,200).path("result").path("points"))
                 .allMatch(point -> point.path("payload").path("knowledge_base_id").asLong() == base);
     }

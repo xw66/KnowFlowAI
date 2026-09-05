@@ -119,7 +119,7 @@ JWT 使用 HS256，校验签名算法、签名、issuer、audience、有效期�
 UPDATE app_user SET system_role = 'ADMIN' WHERE username = 'alice_01';
 ```
 
-初版没有 refresh token、服务端单令牌注销或管理角色编辑接口。客户端退出时丢弃令牌；重新启用账号后，之前尚未过期的令牌仍可使用。系统 ADMIN 角色不会自动取得未来知识库的内容权限。
+初版没有 refresh token、服务端单令牌注销或管理角色编辑接口。客户端退出时丢弃令牌；重新启用账号后，之前尚未过期的令牌仍可使用。系统 ADMIN 可访问全部知识库并管理开放范围和成员，角色变化对已有令牌立即生效。
 
 ## 知识库与成员权限
 
@@ -128,18 +128,18 @@ UPDATE app_user SET system_role = 'ADMIN' WHERE username = 'alice_01';
 | 接口 | 说明 |
 |---|---|
 | POST /api/knowledge-bases | `{"name":"研发知识库"}`；201 返回 id、name、ownerId、role，创建者自动为 OWNER |
-| GET /api/knowledge-bases | 仅列出自己参与的 ACTIVE 知识库；按 id 升序 |
+| GET /api/knowledge-bases | 列出当前用户可见的 ACTIVE 知识库；ADMIN 可见全部；按 id 升序 |
 | GET /api/knowledge-bases/{id} | 返回有权限访问的知识库详情，role 为当前用户在该库的角色 |
 | PUT /api/knowledge-bases/{id} | OWNER / EDITOR 修改名称，请求为 `{"name":"新名称"}` |
-| GET /api/knowledge-bases/{id}/members | 仅 OWNER 可列出成员的 userId、username、role、status |
-| PUT /api/knowledge-bases/{id}/members/{userId} | OWNER 添加成员或修改角色，`{"role":"EDITOR"}` 或 `{"role":"VIEWER"}`；成功 204 |
-| DELETE /api/knowledge-bases/{id}/members/{userId} | OWNER 移除非 OWNER 成员；成功 204，重复移除仍为 204 |
+| GET /api/knowledge-bases/{id}/members | ADMIN / OWNER 可列出成员的 userId、username、role、status |
+| PUT /api/knowledge-bases/{id}/members/{userId} | ADMIN / OWNER 添加成员或修改角色，`{"role":"EDITOR"}` 或 `{"role":"VIEWER"}`；成功 204 |
+| DELETE /api/knowledge-bases/{id}/members/{userId} | ADMIN / OWNER 移除非 OWNER 成员；成功 204，重复移除仍为 204 |
 
-| 操作 | OWNER | EDITOR | VIEWER | 非成员（包括系统 ADMIN） |
-|---|---|---|---|---|
-| 查看知识库 | 允许 | 允许 | 允许 | 404 |
-| 修改知识库名称 | 允许 | 允许 | 403 | 404 |
-| 列出 / 授权 / 移除成员 | 允许 | 403 | 403 | 404 |
+| 操作 | ADMIN | OWNER | EDITOR | VIEWER | 普通非成员 |
+|---|---|---|---|---|---|
+| 查看知识库 | 允许全部 | 允许 | 允许 | 允许 | 404 |
+| 修改知识库名称与开放范围 | 允许 | 允许 | 仅名称 | 403 | 404 |
+| 列出 / 授权 / 移除成员 | 允许 | 允许 | 403 | 403 | 404 |
 
 知识库列表参数为 `afterId`（默认 0）和 `limit`（默认 50，范围 1–100）；成员列表使用 `afterUserId` 和相同 limit。下一页传入上一页最后一个 id / userId；返回空数组表示没有后续数据。分页先按权限过滤，再取指定数量。
 
@@ -172,7 +172,7 @@ Invoke-RestMethod "http://localhost:8080/api/knowledge-bases/$($kb.id)/members/$
 | GET /api/knowledge-bases/{id}/documents | 当前成员可读，afterId 默认 0，limit 默认 50、范围 1–100，按文档 ID 升序游标分页 |
 | GET /api/knowledge-bases/{id}/documents/{documentId} | 返回文档名称、类型、字节数、状态、indexVersion、activeIndexVersion，以及最新任务 ID、状态、阶段和错误码 |
 
-两者都设置 Cache-Control: no-store，不返回存储键、摘要或正文。非成员、跨库文档、不可用知识库和已删除文档返回 404；系统 ADMIN 不绕过成员权限。最新任务失败仍可在目录查看错误码。
+两者都设置 Cache-Control: no-store，不返回存储键、摘要或正文。普通非成员、跨库文档、不可用知识库和已删除文档返回 404；系统 ADMIN 可读取全部有效知识库。最新任务失败仍可在目录查看错误码。
 
 `POST /api/knowledge-bases/{id}/documents/{documentId}/reindex` 重新解析原文件，必须提供 Idempotency-Key，不需要请求体。只有 OWNER / EDITOR 可调用；最新任务必须已 SUCCEEDED 或 FAILED，否则返回 409。同文档、同用户、同幂等键的请求完成后，重复调用返回原任务；请求仍在处理中时返回 409，稍后用原键重试。成功返回 202，响应与上传相同，Location 指向新任务查询地址。
 
@@ -196,7 +196,7 @@ V3 迁移新增 `document`、`document_task`、`outbox_event`。上传请求只�
 
 上传阶段只验证 PDF 文件头、DOCX ZIP 必需条目、文本编码和内容类型，不进行完整 PDF / Office 语义校验。DOCX 解压内容限 32 MB、条目限 2000，防止检查过程被压缩炸弹拖垮；文档是否损坏、是否有可提取正文，在后续 Worker 解析阶段判断。
 
-只有 OWNER / EDITOR 可以上传；VIEWER 返回 403，非成员（包括系统 ADMIN）返回 404。上传前先检查权限，文件落盘后进入数据库短事务，再取得知识库锁重新检查权限，防止上传期间撤权后仍提交任务。
+ADMIN / OWNER / EDITOR 可以上传；VIEWER 返回 403，普通非成员返回 404。上传前先检查权限，文件落盘后进入数据库短事务，再取得知识库锁重新检查权限，防止上传期间撤权后仍提交任务。
 
 幂等键为 8–128 位字母、数字或 `. _ : -`，建议使用 UUID。作用域为「知识库 + 当前用户」：请求完成后，同键、同文件名、相同 SHA-256 返回原 documentId / taskId；同键不同内容或名称返回 409。同键请求仍在处理时也会返回 409，稍后使用原键重试即可。不同用户或不同知识库可以独立使用同一键。重试时仍要求当前用户具备上传权限，不能凭幂等键绕过撤权。
 
@@ -268,7 +268,7 @@ pwsh -File scripts/demo.ps1 -WaitSeconds 180
 
 query 非空且最多 2000 个字符；topK 默认 5，范围 1–20。成功返回数组，每项包含 chunkId、documentId、documentName、content、pageNumber、paragraphNumber、score；响应设置 Cache-Control: no-store。页码不存在时为 null，分数是 Cosine 相似度，不是答案置信度。
 
-API 进程与 Worker 使用同一组 Embedding 和 Qdrant 配置，启用模型后重启两个进程。非成员或不可用知识库返回 404，包括系统 ADMIN；未登录返回 401。模型未启用、集合不存在或上游故障返回脱敏 503，有效集合没有可见结果则返回空数组。
+API 进程与 Worker 使用同一组 Embedding 和 Qdrant 配置，启用模型后重启两个进程。普通非成员或不可用知识库返回 404，系统 ADMIN 可检索全部有效知识库；未登录返回 401。模型未启用、集合不存在或上游故障返回脱敏 503，有效集合没有可见结果则返回空数组。
 
 检索前从 MySQL 授权，Qdrant 查询强制携带知识库过滤，模型调用后再次授权。正文来自 MySQL，仅返回当前成员可见、READY、匹配 active_index_version 与 vector_collection 的分块。最终读取使用短事务与知识库共享锁，和成员修改互斥；网络请求不占用数据库事务。授权以最终数据库读取为边界，已经发送的数据无法在后续撤权时追回。
 
@@ -368,7 +368,7 @@ DOCX 按正文顺序提取段落与表格单元格，空段落占用段落号但
 
 覆盖 Flyway 迁移、健康检查、管理端点隔离、注册后查库、随机盐与密码匹配、大小写并发冲突、非法 JSON / 字段、越权设置角色、密码字节上限及用户名长度。鉴权测试进一步覆盖 JWT 签发、过期、伪造、错误 issuer / audience、缺少必需声明、禁用和删除账号、动态撤销角色、数据库故障拒绝放行。测试密钥固定为公开测试值，不读取开发密钥。报告位于 `target/surefire-reports/`，这些是功能测试，不是压测指标。
 
-知识库测试覆盖原子创建、失败回滚、三个角色的读写边界、系统管理员不绕过成员权限、降级与撤权对旧 JWT 生效、并发幂等授权、OWNER 保护、权限范围内分页、参数校验与删除态隔离。
+知识库测试覆盖原子创建、失败回滚、四个角色的读写边界、系统管理员全库权限、组授权、降级与撤权对旧 JWT 生效、并发幂等授权、OWNER 保护、权限范围内分页、参数校验与删除态隔离。
 
 上传测试使用真实 HTTP multipart、真实 MySQL 与独立临时文件目录，覆盖四种文件、摘要与落盘字节一致性、并发和重复上传、幂等键冲突与作用域、权限和任务隔离、类型伪装、压缩炸弹、上传大小限制、存储故障以及 Outbox 写入失败时的数据库/文件回滚。
 

@@ -131,7 +131,7 @@ public class SearchService {
                         c.content, c.page_number, c.paragraph_number
                     FROM document_chunk c JOIN document d ON d.id=c.document_id
                     JOIN knowledge_base kb ON kb.id=d.knowledge_base_id
-                    JOIN knowledge_member km ON km.knowledge_base_id=kb.id AND km.user_id=:user
+                    JOIN knowledge_access km ON km.knowledge_base_id=kb.id AND km.user_id=:user
                     JOIN app_user u ON u.id=km.user_id
                     WHERE c.id=:chunk AND d.id=:document AND kb.id=:base AND kb.status='ACTIVE' AND u.status='ACTIVE'
                         AND d.status='READY' AND c.index_version=d.active_index_version

@@ -5,6 +5,8 @@ let bases = [{ id: 1, name: '产品研发知识库', ownerId: 1, role: 'OWNER' }
 let docs = [{ id: 1, name: '研发交付规范.md', status: 'READY', latestTaskStatus: 'SUCCEEDED', latestTaskStage: 'INDEXED', indexVersion: 1, activeIndexVersion: 1, sizeBytes: 3400, updatedAt: '2026-09-04T12:00:00' }, { id: 2, name: '新成员入职指南.pdf', status: 'READY', latestTaskStatus: 'SUCCEEDED', indexVersion: 1, activeIndexVersion: 1, sizeBytes: 58200, updatedAt: '2026-09-04T11:30:00' }]
 const source = { id: 'C1', documentId: 1, chunkId: 10, documentName: '研发交付规范.md', pageNumber: null, paragraphNumber: 2, quote: '每次发布前需完成代码审查和自动化测试，并由负责人确认回滚方案。' }
 let turns = []
+const departments = [{ id: 1, name: '产品部', joined: false }, { id: 2, name: '研发部', joined: false }]
+const sharing = new Map()
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost')
   let raw = ''; for await (const chunk of req) raw += chunk
@@ -12,12 +14,24 @@ createServer(async (req, res) => {
   const json = (value, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)) }
   if (url.pathname === '/api/auth/register') return json({ id: 1 }, 201)
   if (url.pathname === '/api/auth/login') return json({ accessToken: 'local-fixture-token' })
-  if (url.pathname === '/api/auth/me') return json({ id: 1, username: 'ui_test', role: 'USER' })
+  if (url.pathname === '/api/auth/me') return json({ id: 1, username: 'ui_test', role: 'ADMIN' })
+  if (url.pathname === '/api/departments') {
+    if (req.method === 'POST') { const department = { id: departments.length + 1, name: data.name, joined: false }; departments.push(department); return json(department, 201) }
+    return json(departments.filter(item => item.id > Number(url.searchParams.get('afterId') ?? 0)))
+  }
+  if (/\/departments\/\d+\/membership$/.test(url.pathname)) {
+    departments.find(item => item.id === Number(url.pathname.split('/')[3])).joined = req.method === 'PUT'
+    res.writeHead(204); return res.end()
+  }
   if (url.pathname === '/api/knowledge-bases') {
-    if (req.method === 'POST') { const base = { id: bases.length + 1, name: data.name, ownerId: 1, role: 'OWNER' }; bases.push(base); return json(base, 201) }
+    if (req.method === 'POST') { const base = { id: bases.length + 1, name: data.name, ownerId: 1, role: 'OWNER' }; bases.push(base); sharing.set(base.id, { visibility: data.visibility ?? 'PRIVATE', departmentIds: data.departmentIds ?? [] }); return json(base, 201) }
     return json(bases)
   }
   const baseId = Number(url.pathname.match(/knowledge-bases\/(\d+)/)?.[1])
+  if (url.pathname.endsWith('/sharing')) {
+    if (req.method === 'PUT') sharing.set(baseId, data)
+    return json(sharing.get(baseId) ?? { visibility: 'PRIVATE', departmentIds: [] })
+  }
   if (/\/knowledge-bases\/\d+$/.test(url.pathname)) { const base = bases.find(item => item.id === baseId); base.name = data.name; return json(base) }
   if (url.pathname.endsWith('/members')) return json([{ userId: 1, username: 'ui_test', role: 'OWNER', status: 'ACTIVE' }])
   if (/\/members\/\d+$/.test(url.pathname)) return json({ detail: '目标用户不存在或不可用' }, 404)

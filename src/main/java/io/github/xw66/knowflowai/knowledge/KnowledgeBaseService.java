@@ -19,7 +19,7 @@ public class KnowledgeBaseService {
     private static final String VISIBLE_BASES = """
             SELECT kb.id, kb.name, kb.owner_id, km.role
             FROM knowledge_base kb
-            JOIN knowledge_member km ON km.knowledge_base_id = kb.id
+            JOIN knowledge_access km ON km.knowledge_base_id = kb.id
             JOIN app_user u ON u.id = km.user_id
             WHERE km.user_id = :userId AND u.status = 'ACTIVE' AND kb.status = 'ACTIVE'
             """;
@@ -44,6 +44,13 @@ public class KnowledgeBaseService {
         return new KnowledgeBaseView(id, name.strip(), userId, "OWNER");
     }
 
+    @Transactional
+    public KnowledgeBaseView create(long userId, String name, String visibility, List<Long> departmentIds) {
+        var base = create(userId, name);
+        setSharing(userId, base.id(), visibility, departmentIds);
+        return base;
+    }
+
     public List<KnowledgeBaseView> list(long userId, long afterId, int limit) {
         return jdbcClient.sql(VISIBLE_BASES + " AND kb.id > :afterId ORDER BY kb.id LIMIT :limit")
                 .param("userId", userId).param("afterId", afterId).param("limit", limit)
@@ -56,7 +63,7 @@ public class KnowledgeBaseService {
         var access = jdbcClient.sql("""
                 SELECT kb.owner_id, kb.cache_version, km.role
                 FROM knowledge_base kb
-                JOIN knowledge_member km ON km.knowledge_base_id = kb.id
+                JOIN knowledge_access km ON km.knowledge_base_id = kb.id
                 JOIN app_user u ON u.id = km.user_id
                 WHERE kb.id = :id AND km.user_id = :userId
                   AND kb.status = 'ACTIVE' AND u.status = 'ACTIVE'
@@ -131,6 +138,35 @@ public class KnowledgeBaseService {
                 .query(MemberView.class).list();
     }
 
+    public Sharing sharing(long userId, long id) {
+        get(userId, id);
+        String visibility = jdbcClient.sql("SELECT visibility FROM knowledge_base WHERE id=:id")
+                .param("id", id).query(String.class).single();
+        var departments = jdbcClient.sql("SELECT department_id FROM knowledge_department WHERE knowledge_base_id=:id ORDER BY department_id")
+                .param("id", id).query(Long.class).list();
+        return new Sharing(visibility, departments);
+    }
+
+    @Transactional
+    public Sharing setSharing(long userId, long id, String visibility, List<Long> departmentIds) {
+        requireOwner(lockForWrite(userId, id));
+        var ids = departmentIds.stream().distinct().sorted().toList();
+        if (visibility.equals("DEPARTMENTS") == ids.isEmpty())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "指定部门时至少选择一个部门，其他范围不能包含部门");
+        if (!ids.isEmpty() && jdbcClient.sql("SELECT COUNT(*) FROM department WHERE id IN (:ids)")
+                .param("ids", ids).query(Long.class).single() != ids.size())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "所选部门不存在");
+        jdbcClient.sql("UPDATE knowledge_base SET visibility=:visibility WHERE id=:id")
+                .param("visibility", visibility).param("id", id).update();
+        jdbcClient.sql("DELETE FROM knowledge_department WHERE knowledge_base_id=:id").param("id", id).update();
+        for (long departmentId : ids)
+            jdbcClient.sql("INSERT INTO knowledge_department(knowledge_base_id,department_id) VALUES (:id,:department)")
+                    .param("id", id).param("department", departmentId).update();
+        return new Sharing(visibility, ids);
+    }
+
+    public record Sharing(String visibility, List<Long> departmentIds) {}
+
     private KnowledgeBaseView lockForWrite(long userId, long id) {
         // 同一知识库的写入与撤权共用行锁，取得锁后再读取当前成员权限。
         jdbcClient.sql("SELECT id FROM knowledge_base WHERE id = :id AND status = 'ACTIVE' FOR UPDATE")
@@ -148,15 +184,15 @@ public class KnowledgeBaseService {
     }
 
     private static KnowledgeBaseView requireEditor(KnowledgeBaseView base) {
-        if (!base.role().equals("OWNER") && !base.role().equals("EDITOR")) {
+        if (!List.of("ADMIN", "OWNER", "EDITOR").contains(base.role())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要知识库编辑权限");
         }
         return base;
     }
 
     private static void requireOwner(KnowledgeBaseView base) {
-        if (!base.role().equals("OWNER")) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "只有知识库所有者可以管理成员");
+        if (!List.of("ADMIN", "OWNER").contains(base.role())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "只有系统管理员或知识库所有者可以管理成员");
         }
     }
 

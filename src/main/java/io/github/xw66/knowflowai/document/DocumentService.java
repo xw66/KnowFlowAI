@@ -25,7 +25,7 @@ public class DocumentService {
                    t.stage AS latest_task_stage, t.error_code, d.created_at, d.updated_at
             FROM document d
             JOIN knowledge_base kb ON kb.id=d.knowledge_base_id
-            JOIN knowledge_member km ON km.knowledge_base_id=kb.id
+            JOIN knowledge_access km ON km.knowledge_base_id=kb.id
             JOIN app_user u ON u.id=km.user_id
             JOIN document_task t ON t.document_id=d.id AND t.index_version=d.index_version
             WHERE kb.id=:base AND kb.status='ACTIVE' AND km.user_id=:user AND u.status='ACTIVE' AND d.status<>'DELETED'
@@ -138,7 +138,7 @@ public class DocumentService {
     private static final String VISIBLE_TASKS = """
                 FROM document_task t JOIN document d ON d.id = t.document_id
                 JOIN knowledge_base kb ON kb.id = d.knowledge_base_id
-                JOIN knowledge_member km ON km.knowledge_base_id = kb.id
+                JOIN knowledge_access km ON km.knowledge_base_id = kb.id
                 JOIN app_user u ON u.id = km.user_id
                 WHERE t.id = :taskId AND km.user_id = :userId AND u.status = 'ACTIVE'
                   AND kb.status = 'ACTIVE' AND d.status <> 'DELETED'

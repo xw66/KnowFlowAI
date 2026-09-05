@@ -67,7 +67,7 @@ API 负责鉴权、业务事务、上传、检索和 SSE；Worker 负责文档�
 | message_citation | id，message_id FK，citation_no INT，document_id FK，chunk_id FK，document_name VARCHAR(255)，excerpt TEXT，page_start / page_end INT NULL，paragraph_start / paragraph_end INT NULL | UNIQUE(message_id, citation_no)；保存回答时引用快照，历史访问仍需检查当前权限 |
 | model_call | id，user_id FK NULL，task_id FK NULL，message_id FK NULL，request_id CHAR(36)，operation VARCHAR(24)，provider / model VARCHAR(128)，attempt_no INT，status VARCHAR(24)，input_tokens / output_tokens BIGINT NULL，duration_ms BIGINT，estimated_cost DECIMAL(20,8) NULL，currency CHAR(3) NULL，pricing_version VARCHAR(64) NULL，usage_source VARCHAR(16)，error_code VARCHAR(64) NULL | INDEX(request_id, operation, attempt_no)，INDEX(created_at, provider, model)；CHAT / EMBEDDING / REWRITE / RERANK；含失败与 Fallback 尝试 |
 
-平台角色决定系统级操作，知识库角色决定内容访问；ADMIN 默认不绕过知识库 ACL。注册不能指定 ADMIN。创建知识库与 OWNER 成员写入同一事务，避免无所有者知识库；所有者变更也必须事务更新。
+平台角色决定系统级操作，知识库角色决定普通用户的内容访问；ADMIN 可访问全部有效知识库并管理开放范围与成员。注册不能指定 ADMIN。创建知识库与 OWNER 成员写入同一事务，避免无所有者知识库；所有者变更也必须事务更新。
 
 初版文档继承知识库 ACL，所有文档均有明确权限边界。暂不提供文档级例外授权 UI；若需要同库不同权限，再引入文档 ACL。删除采用软删除，先撤销可检索状态，再异步清理两种索引与文件；引用历史仅向仍有权限的用户展示。
 

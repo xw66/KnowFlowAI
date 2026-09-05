@@ -308,7 +308,7 @@ class DocumentTests {
         expect(request(owner,"DELETE","/api/knowledge-bases/"+baseId+"/members/"+viewer.id(),null),204);
         expect(request(viewer,"GET",path+"/"+documentId,null),404);
         jdbc.sql("UPDATE app_user SET system_role='ADMIN' WHERE id=:id").param("id",viewer.id()).update();
-        expect(request(viewer,"GET",path,null),404);
+        expect(request(viewer,"GET",path,null),200);
         expect(request(null,"GET",path,null),401);
         long otherBase=createBase(owner);
         expect(request(owner,"GET","/api/knowledge-bases/"+otherBase+"/documents/"+documentId,null),404);
@@ -572,14 +572,15 @@ class DocumentTests {
         String key = UUID.randomUUID().toString();
         long before = fileCount();
         expect(upload(viewer, baseId, key, "notes.txt", fixture("txt")), 403);
-        expect(upload(admin, baseId, key, "notes.txt", fixture("txt")), 404);
         expect(upload(null, baseId, key, "notes.txt", fixture("txt")), 401);
-        assertThat(fileCount()).isEqualTo(before);
+        var adminUpload = upload(admin, baseId, key, "admin-notes.txt", fixture("txt"));
+        expect(adminUpload, 202);
+        assertThat(fileCount()).isEqualTo(before + 1);
         var uploaded = upload(editor, baseId, key, "notes.txt", fixture("txt"));
         expect(uploaded, 202);
         String task = "/api/document-tasks/" + number(uploaded, "$.taskId");
         expect(request(viewer, "GET", task, null), 200);
-        expect(request(admin, "GET", task, null), 404);
+        expect(request(admin, "GET", task, null), 200);
         expect(request(null, "GET", task, null), 401);
         expect(request(owner, "DELETE", "/api/knowledge-bases/" + baseId + "/members/" + editor.id(), null), 204);
         expect(upload(editor, baseId, key, "notes.txt", fixture("txt")), 404);

@@ -41,6 +41,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test")
 class KnowledgeBaseTests {
 
+    @org.junit.jupiter.api.io.TempDir
+    static java.nio.file.Path storageDirectory;
+
+    @org.springframework.test.context.DynamicPropertySource
+    static void storageProperties(org.springframework.test.context.DynamicPropertyRegistry registry) {
+        registry.add("app.document.storage-directory", () -> storageDirectory.toString());
+    }
+
     @TestConfiguration(proxyBeanMethods = false)
     static class RedisConfiguration {
         @Bean
@@ -68,6 +76,87 @@ class KnowledgeBaseTests {
     private Actor owner;
     private Actor member;
     private Actor outsider;
+
+    @Autowired
+    private io.github.xw66.knowflowai.document.DocumentService documents;
+    @Autowired
+    private io.github.xw66.knowflowai.chat.ConversationService conversations;
+
+    @Test
+    void departmentMembershipCombinesGrantsAndRevokesAllReadPaths() throws Exception {
+        jdbcClient.sql("UPDATE app_user SET system_role='ADMIN' WHERE id=:id").param("id", owner.id()).update();
+        long first = department("研发"), second = department("产品");
+        expect(send(member, "POST", "/api/departments", json(Map.of("name", "越权创建"))), 403);
+        expect(send(null, "GET", "/api/departments", ""), 401);
+        long id = create(owner, "跨部门资料");
+        var sharing = json(Map.of("visibility", "DEPARTMENTS", "departmentIds", List.of(first, second)));
+        expect(send(owner, "PUT", base(id) + "/sharing", sharing), 200);
+        expect(send(member, "GET", base(id), ""), 404);
+        for (long department : List.of(first, second, first))
+            expect(send(member, "PUT", "/api/departments/" + department + "/membership", ""), 204);
+        assertThat(service.get(member.id(), id).role()).isEqualTo("VIEWER");
+        assertThat(service.list(member.id(), 0, 100)).extracting(KnowledgeBaseService.KnowledgeBaseView::id).containsExactly(id);
+        expect(send(member, "PUT", base(id) + "/sharing", sharing), 403);
+        expect(send(member, "PUT", base(id), json(Map.of("name", "不能编辑"))), 403);
+        var upload = documents.upload(owner.id(), id, UUID.randomUUID().toString(),
+                new org.springframework.mock.web.MockMultipartFile("file", "department.txt", "text/plain", "部门资料".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        var turn = conversations.begin(member.id(), id, null, "部门资料？");
+        conversations.terminate(turn, "CANCELLED", "", null, null, "TEST");
+        for (String path : List.of(base(id) + "/documents", base(id) + "/documents/" + upload.documentId(),
+                "/api/document-tasks/" + upload.taskId(), "/api/conversations/" + turn.conversationId() + "/messages"))
+            expect(send(member, "GET", path, ""), 200);
+        expect(send(outsider, "GET", "/api/conversations/" + turn.conversationId() + "/messages", ""), 404);
+        expect(send(member, "DELETE", "/api/departments/" + first + "/membership", ""), 204);
+        expect(send(member, "GET", base(id), ""), 200);
+        expect(grant(owner, id, member.id(), "EDITOR"), 204);
+        assertThat(service.get(member.id(), id).role()).isEqualTo("EDITOR");
+        expect(send(owner, "DELETE", base(id) + "/members/" + member.id(), ""), 204);
+        assertThat(service.get(member.id(), id).role()).isEqualTo("VIEWER");
+        expect(send(member, "DELETE", "/api/departments/" + second + "/membership", ""), 204);
+        for (String path : List.of(base(id), base(id) + "/documents", base(id) + "/documents/" + upload.documentId(),
+                "/api/document-tasks/" + upload.taskId(), "/api/conversations/" + turn.conversationId() + "/messages"))
+            expect(send(member, "GET", path, ""), 404);
+        expect(send(member, "POST", base(id) + "/search", json(Map.of("query", "部门资料", "topK", 5))), 404);
+        assertThat(send(member, "GET", "/api/conversations", "").body()).isEqualTo("[]");
+        expect(send(member, "PUT", "/api/departments/" + Long.MAX_VALUE + "/membership", ""), 404);
+        expect(send(member, "GET", "/api/departments?limit=101", ""), 400);
+    }
+
+    @Test
+    void sharingDefaultsPrivateValidatesAndChangesCachedAccessImmediately() throws Exception {
+        long id = create(owner, "开放范围");
+        assertThat(service.sharing(owner.id(), id).visibility()).isEqualTo("PRIVATE");
+        for (var invalid : List.of(Map.of("visibility", "DEPARTMENTS", "departmentIds", List.of()),
+                Map.of("visibility", "DEPARTMENTS", "departmentIds", List.of(Long.MAX_VALUE)),
+                Map.of("visibility", "ALL", "departmentIds", List.of(1)),
+                Map.of("visibility", "UNKNOWN", "departmentIds", List.of())))
+            expect(send(owner, "PUT", base(id) + "/sharing", json(invalid)), 400);
+        long before = jdbcClient.sql("SELECT COUNT(*) FROM knowledge_base").query(Long.class).single();
+        expect(send(owner, "POST", "/api/knowledge-bases", json(Map.of("name", "回滚", "visibility", "DEPARTMENTS", "departmentIds", List.of(Long.MAX_VALUE)))), 400);
+        assertThat(jdbcClient.sql("SELECT COUNT(*) FROM knowledge_base").query(Long.class).single()).isEqualTo(before);
+        expect(send(owner, "PUT", base(id) + "/sharing", json(Map.of("visibility", "ALL", "departmentIds", List.of()))), 200);
+        try {
+            assertThat(service.get(member.id(), id).role()).isEqualTo("VIEWER");
+            expect(send(outsider, "GET", base(id), ""), 200);
+            expect(send(null, "GET", base(id), ""), 401);
+            expect(send(member, "PUT", base(id), json(Map.of("name", "只读"))), 403);
+            expect(grant(owner, id, member.id(), "EDITOR"), 204);
+            assertThat(service.get(member.id(), id).role()).isEqualTo("EDITOR");
+            jdbcClient.sql("UPDATE app_user SET status='DISABLED' WHERE id=:id").param("id", outsider.id()).update();
+            expect(send(outsider, "GET", base(id), ""), 401);
+        } finally {
+            service.setSharing(owner.id(), id, "PRIVATE", List.of());
+        }
+        expect(send(member, "GET", base(id), ""), 200);
+        expect(send(owner, "DELETE", base(id) + "/members/" + member.id(), ""), 204);
+        expect(send(member, "GET", base(id), ""), 404);
+    }
+
+    private long department(String name) throws Exception {
+        var response = send(owner, "POST", "/api/departments", json(Map.of("name", name + UUID.randomUUID())));
+        expect(response, 201);
+        return ((Number) JsonPath.read(response.body(), "$.id")).longValue();
+    }
 
     @Test
     void cachesNameWithTtlButAlwaysReadsCurrentRoleAndMembership() throws Exception {
@@ -222,7 +311,7 @@ class KnowledgeBaseTests {
     }
 
     @Test
-    void nonMemberAndSystemAdminCannotDiscoverOrManageKnowledgeBase() throws Exception {
+    void systemAdminCanDiscoverAndManageEveryKnowledgeBase() throws Exception {
         long id = create(owner, "机密资料");
         var invisible = send(outsider, "GET", base(id), "");
         var absent = send(outsider, "GET", base(Long.MAX_VALUE), "");
@@ -232,12 +321,16 @@ class KnowledgeBaseTests {
                 .isEqualTo(JsonPath.read(absent.body(), "$.detail"));
         jdbcClient.sql("UPDATE app_user SET system_role = 'ADMIN' WHERE id = :id").param("id", outsider.id()).update();
         expect(send(outsider, "GET", "/api/admin/users/" + owner.id(), ""), 200);
-        expect(send(outsider, "GET", base(id), ""), 404);
-        expect(send(outsider, "PUT", base(id), json(Map.of("name", "越权修改"))), 404);
-        expect(grant(outsider, id, outsider.id(), "EDITOR"), 404);
-        expect(send(outsider, "GET", base(id) + "/members", ""), 404);
-        expect(send(outsider, "DELETE", base(id) + "/members/" + owner.id(), ""), 404);
-        assertThat(send(outsider, "GET", "/api/knowledge-bases", "").body()).isEqualTo("[]");
+        expect(send(outsider, "GET", base(id), ""), 200);
+        assertThat((String) JsonPath.read(send(outsider, "GET", base(id), "").body(), "$.role")).isEqualTo("ADMIN");
+        expect(send(outsider, "PUT", base(id), json(Map.of("name", "管理员修改"))), 200);
+        expect(send(outsider, "PUT", base(id) + "/sharing", json(Map.of("visibility", "ALL", "departmentIds", List.of()))), 200);
+        expect(send(outsider, "PUT", base(id) + "/sharing", json(Map.of("visibility", "PRIVATE", "departmentIds", List.of()))), 200);
+        expect(grant(outsider, id, member.id(), "EDITOR"), 204);
+        expect(send(outsider, "GET", base(id) + "/members", ""), 200);
+        expect(send(outsider, "DELETE", base(id) + "/members/" + owner.id(), ""), 409);
+        List<Number> visible = JsonPath.read(send(outsider, "GET", "/api/knowledge-bases", "").body(), "$[*].id");
+        assertThat(visible).extracting(Number::longValue).contains(id);
         expect(send(null, "GET", base(id), ""), 401);
         expect(send(null, "POST", "/api/knowledge-bases", json(Map.of("name", "匿名创建"))), 401);
     }
