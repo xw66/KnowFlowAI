@@ -1,127 +1,190 @@
 # KnowFlow AI
 
-**让团队文档成为可检索、可追溯、有权限边界的知识。**
+### 企业知识管理与智能问答平台
 
-KnowFlow AI 是一个企业知识治理与智能检索平台。上传制度、研发规范或业务手册后，团队成员可以搜索原文、用自然语言提问，并展开回答中的引用核对出处。项目覆盖文档处理、知识库授权、检索问答和模型调用管理，适合团队内部知识共享，也适合展示 Java 后端与 AI 应用工程实践。
+KnowFlow AI 用于集中管理团队的制度、手册和业务文档。员工可以按关键词查找原文，也可以直接提问，获取带文档出处的回答；资料维护人员负责上传、更新和共享，系统根据知识库成员和用户组控制访问范围。
 
-[界面预览](#界面预览) · [技术亮点](#技术亮点) · [快速启动](#快速启动) · [验证与边界](#验证与边界) · [更新记录](CHANGELOG.md)
+项目包含 Vue 前端、Spring Boot 后端、异步文档处理、混合检索和大模型问答，并提供容器化部署、调用记账及索引对账能力。
 
-## 可以用它做什么
+[功能概览](#功能概览) · [使用场景](#使用场景) · [用户组与权限](#用户组与权限) · [技术实现](#技术实现) · [部署与文档](#部署与文档)
 
-| 场景 | 使用方式 |
+![员工查询差旅报销材料，回答附带原文引用](docs/images/employee-answer.png)
+
+## 功能概览
+
+| 功能 | 说明 |
 | --- | --- |
-| 新成员查阅资料 | 集中管理入职指南、操作手册，搜索原文或直接提问 |
-| 研发知识沉淀 | 上传发布规范和技术文档，展开回答引用核对原文片段 |
-| 团队资料共享 | 设置仅指定成员、全员只读或指定用户组只读，单独授予编辑权限 |
-| 文档持续更新 | 查看处理阶段、重建索引、删除过期资料，后台异步处理 |
-| 连续追问 | 保存个人会话，支持流式输出、停止生成和可选的上下文查询改写 |
+| 知识库管理 | 按团队、项目或主题组织资料，设置名称、成员和共享范围 |
+| 文档管理 | 支持 PDF、DOCX、Markdown、TXT 上传，查看处理状态和索引版本，重新处理或删除文档 |
+| 原文搜索 | 支持关键词检索、语义检索、混合检索及重排，返回文档名称、原文片段和页码或段落编号 |
+| 智能问答 | 根据知识库内容生成回答，逐步显示正文，附可展开的原文引用 |
+| 个人会话 | 保存提问与回答，查看历史记录，在同一会话中继续提问或停止生成 |
+| 成员协作 | 区分所有者、编辑者和只读成员，支持全员共享和指定用户组共享 |
+| 运行管理 | 提供接口限流、请求幂等、模型调用统计、费用估算、预算控制和索引对账 |
 
-支持 PDF、DOCX、Markdown 和 TXT，默认单文件上限 10 MB。PDF 需要包含可提取文本；当前未接入扫描件 OCR。
+## 使用场景
 
-## 界面预览
+以下截图来自本地运行的完整应用，使用人力行政、产品研发、客户服务三组示例资料；问答与检索连接实际模型服务。示例文档保存在 [docs/examples](docs/examples)。
 
-以下为当前 Vue 前端的实际浏览器截图，使用仓库自带的本地协议演示服务与虚构资料。截图展示交互和布局，示例回答由固定测试数据提供，不代表真实模型效果。复现方法见 [前端说明](frontend/README.md)。
+### 人力行政：维护制度，供员工自行查询
 
-### 智能问答：回答附带可展开的原文引用
+人力行政人员将入职指南、差旅报销制度、设备申请说明放入“员工服务中心”。文档列表显示文件类型、处理状态和更新时间；维护人员可以上传新资料、重新处理文档或删除旧资料。
 
-![智能问答界面，展示发布准备问题、回答和展开的原文引用](docs/images/answer.png)
+![人力行政账号维护员工服务中心的三篇文档](docs/images/hr-documents.png)
 
-### 文档管理：集中查看资料与可检索状态
+员工登录后以只读方式访问这些资料。页面保留查询入口，并按其权限显示可用操作。
 
-![文档管理界面，展示文档、处理状态及重新处理入口](docs/images/documents.png)
+![新员工账号以只读权限查看员工服务中心](docs/images/employee-readonly.png)
 
-### 成员与设置：控制开放范围和编辑权限
+例如，员工询问“出差回来后，报销需要准备哪些材料？”，系统从《差旅与费用报销》中找到相关条款，回答所需材料，并附上段落引用。员工可以继续询问提交期限，同一会话保留两次问答和各自的出处。
 
-![知识库设置界面，展示开放范围与成员授权表单](docs/images/members.png)
+![同一会话中连续查询报销材料和提交期限](docs/images/employee-conversation.png)
 
-## 技术亮点
+### 产品研发：管理交付资料，核对发布要求
 
-| 工程问题 | 项目实现 | 深入阅读 |
-| --- | --- | --- |
-| 上传不应等待模型和解析 | API 在事务中创建任务与 Outbox，Kafka 投递给 Worker；任务支持幂等、租约、重试与恢复 | [任务恢复](docs/task-recovery.md) |
-| 召回结果不能替代权限判断 | MySQL 保存业务状态与授权，检索返回前复核文档状态、激活版本与访问权限 | [权限设计](docs/departments.md) |
-| 精确匹配与语义检索各有所长 | Lucene BM25、Qdrant 向量检索、RRF 融合，支持可选重排及失败回退 | [混合检索](docs/bm25-design.md)、[重排](docs/rerank-design.md) |
-| 回答需要可核对的证据 | 同步与 SSE 问答附原文引用；会话读取复核权限，来源删除或失效时隐藏相关内容 | [问答](docs/answer-design.md)、[会话](docs/conversation-design.md) |
-| 模型可能超时且产生费用 | 连接、首字、空闲与总时限，有限重试及备用模型；记录调用尝试、用量、价格快照和预算 | [模型韧性](docs/model-resilience-design.md)、[预算](docs/model-budget-design.md) |
-| 外部索引可能与业务库不一致 | 重建成功后切换激活版本，删除采用逻辑屏蔽与异步向量清理，提供只读对账和恢复演练 | [外部对账](docs/external-reconciliation.md)、[恢复演练](docs/recovery-drill.md) |
+研发账号可以同时访问全员共享的“员工服务中心”和本组的“研发交付知识库”。示例中的研发账号被单独授予编辑权限，可以维护发布清单、故障响应流程和接口评审约定。
 
-### 架构与技术栈
+![研发账号查看本组资料，具备上传和文档管理权限](docs/images/dev-documents.png)
 
-同一 Spring Boot 应用制品分别运行 API 与 Worker 两个进程。API 负责认证、管理和检索问答，Worker 负责文档解析、分块及索引处理。
+点击文档可以查看处理状态与当前索引版本，再进入问答与搜索查找内容。
+
+![文档详情展示处理状态和当前索引版本](docs/images/document-details.png)
+
+发布前，研发人员可以直接询问检查事项。回答从发布规范中整理代码审查、自动化测试、数据库变更、发布单和回滚方案等要求，引用分别对应原文段落。
+
+![研发人员查询版本发布前的检查事项并展开依据](docs/images/dev-answer.png)
+
+需要直接核对条款时，可以切换到“查找原文”。输入“发布回滚方案”，页面展示相关片段及其出处；检索选项支持选择关键词、语义或混合检索，并开启重排。
+
+![混合检索与重排返回发布回滚相关的原文片段](docs/images/hybrid-search.png)
+
+### 客户服务：查阅处理流程，统一回复依据
+
+客服账号能查看公共制度和“客户服务手册”。遇到紧急客户问题时，可以查询响应时限、需要通知的人员以及升级流程。示例回答引用《客户问题分级与升级》，给出响应时间和协作对象，客服可以直接展开核对。
+
+![客服账号查询紧急问题的响应时限与通知对象](docs/images/service-answer.png)
+
+## 用户组与权限
+
+系统同时支持按用户组共享和单独授权。用户组负责组织共享范围，成员角色决定在知识库中可以进行哪些操作。
+
+### 按团队组织资料
+
+管理员创建用户组，用户可以加入或退出，也可以同时属于多个组。加入后即可访问对该组开放的知识库。下图中的研发账号已加入“产品研发组”。
+
+![研发账号的用户组页面，展示三个用户组及加入状态](docs/images/user-groups.png)
+
+### 为公共制度设置全员只读
+
+“员工服务中心”由人力行政账号维护，开放范围设为“全员只读”。已登录员工可以阅读、搜索和提问，文档维护权限由所有者和单独授权的编辑者持有。
+
+![员工服务中心设置为全员只读，人力行政账号保留所有者权限](docs/images/hr-sharing.png)
+
+### 为专业资料指定用户组并授予编辑权限
+
+“研发交付知识库”对产品研发组开放只读访问，同时将 `dev_editor` 单独设为编辑者。管理员可在同一页面管理共享范围、添加成员、调整角色或移除成员。
+
+![管理员为研发知识库指定用户组，并授予研发账号编辑权限](docs/images/group-sharing.png)
+
+示例中的账号分工如下：
+
+| 账号 | 身份与分组 | 可访问的示例知识库 | 主要操作 |
+| --- | --- | --- | --- |
+| `hr_editor` | 人力行政组、员工服务中心所有者 | 员工服务中心 | 维护制度文档、设置全员共享 |
+| `new_employee` | 普通员工 | 员工服务中心 | 阅读资料、查询制度、连续提问 |
+| `dev_editor` | 产品研发组、研发知识库编辑者 | 员工服务中心、研发交付知识库 | 查询公共制度、维护研发资料 |
+| `service_agent` | 客户服务组、只读成员 | 员工服务中心、客户服务手册 | 查询处理流程、核对回复依据 |
+| `showcase_admin` | 系统管理员 | 全部知识库 | 创建用户组、管理共享范围与成员 |
+
+权限校验覆盖文档、任务、检索、问答和会话读取。知识库列表按当前权限返回；历史会话归提问者本人所有，读取时重新核验知识库权限与引用来源。
+
+## 技术实现
+
+### 系统架构
+
+前端使用 Vue 3 与 TypeScript，Nginx 提供静态资源和接口代理。后端使用 Java 25、Spring Boot 与 Spring AI，同一应用制品分别运行 API 和 Worker 两个进程：API 处理用户请求，Worker 执行文档解析和索引任务。
 
 ```mermaid
-flowchart LR
-    Web[Vue 3 前端 / Nginx] --> API[Spring Boot API]
-    API --> DB[(MySQL：业务状态与权限)]
-    API --> Redis[(Redis：缓存、限流、幂等)]
-    API --> Outbox[事务 Outbox]
+flowchart TB
+    User[用户浏览器] --> Web[Vue 3 / TypeScript / Nginx]
+    Web --> API[Spring Boot API]
+    API --> DB[(MySQL 业务数据与权限)]
+    API --> Redis[(Redis 缓存、限流与幂等)]
+    DB --> Outbox[Outbox 事件投递]
     Outbox --> Kafka[Kafka 消息队列]
     Kafka --> Worker[文档处理 Worker]
+    Worker --> Parse[解析与分块]
+    Parse --> Embedding[向量模型]
+    Embedding --> Qdrant[(Qdrant 向量索引)]
+    Parse --> Lucene[(Lucene 全文索引)]
     Worker --> DB
-    Worker --> Index[Qdrant 向量 / Lucene 全文索引]
-    API --> Index
-    Worker --> Model[向量模型]
-    API --> Chat[聊天模型 / 可选重排]
+    API --> Search[检索、权限复核与排序]
+    Search --> Qdrant
+    Search --> Lucene
+    Search --> DB
+    Search --> Answer[模型生成与引用校验]
+    Answer --> Stream[SSE 流式回答]
+    Stream --> Web
 ```
 
-| 层次 | 技术 |
+### 文档处理与数据一致性
+
+上传接口完成文件校验、持久化和任务创建后返回，解析和模型调用由后台执行。文档任务与 Outbox 事件在同一数据库事务中提交，再通过 Kafka 投递；Worker 使用幂等接收、任务租约和重试处理重复消息及执行中断。
+
+文档重建索引时保留已激活版本，新版本写入完成后再切换。删除文档会先更新业务状态，再由后台清理向量数据。MySQL 保存文档状态和版本，检索结果返回前再次核对，确保返回的是当前可访问的有效内容。
+
+### 检索与问答
+
+关键词检索使用 Lucene BM25，语义检索使用 Qdrant；混合检索通过 RRF 合并两路结果，并支持调用重排模型调整顺序。系统将检索到的原文片段作为回答依据，校验引用与原文的对应关系，再通过同步接口或 SSE 返回。
+
+会话保存用户提问、助手回答、生成状态和引用。续问接口支持结合历史问答改写检索问题，相关调用单独记录。前端提供历史会话、继续提问、引用展开和停止生成操作。
+
+### 身份认证与运行管理
+
+账号使用 BCrypt 密码哈希和 JWT 认证，系统角色、知识库成员及用户组授权由 MySQL 管理。服务端在请求处理时读取账号状态与权限，Redis 承担缓存、接口限流和请求幂等协调。
+
+模型调用设置连接、首字、空闲和总时限，支持有限重试与备用模型。聊天、查询改写、向量生成和重排均记录调用尝试、耗时和用量；管理员可通过接口查询价格快照、费用估算、预算余额和调用汇总。预算预留与结算在 API、Worker 之间共享。
+
+### 技术栈
+
+| 模块 | 技术 |
 | --- | --- |
-| 前端 | Vue 3、TypeScript、Vite，原生 fetch 与 SSE |
-| 后端 | Java 25、Spring Boot 4.1.1、Spring AI 2.0.1、Spring Security |
-| 数据与任务 | MySQL、Flyway、Redis、Kafka |
-| 检索与解析 | Qdrant、Lucene、PDFBox、Apache POI |
-| 交付与验证 | Docker Compose、Nginx、Maven Wrapper、集成测试与评测脚本 |
+| 前端 | Vue 3、TypeScript、Vite、原生 fetch 与 SSE |
+| 应用框架 | Java 25、Spring Boot 4.1.1、Spring AI 2.0.1、Spring Security |
+| 数据存储 | MySQL、Flyway、Redis |
+| 异步任务 | Kafka、事务 Outbox、任务租约与重试 |
+| 检索 | Qdrant、Lucene BM25、RRF、Rerank |
+| 文件解析 | PDFBox、Apache POI、文本解析与分块 |
+| 部署与接口 | Docker Compose、Nginx、OpenAPI / Swagger、健康检查、结构化日志 |
 
-## 快速启动
+项目包含后端集成测试、前端交互与 SSE 协议测试，以及文档入库、检索、问答引用、索引对账和容器恢复的验证脚本。检索评测集包含 20 篇文档和 50 条问题，保存了逐条结果和多种检索方式的对照记录。
 
-推荐使用 Docker Compose 启动完整应用，需要支持 Linux 容器的 Docker 环境。在仓库根目录执行：
+## 部署与文档
 
-```powershell
-# 仅首次执行；已有 .env 时请保留原配置
-Copy-Item .env.example .env
-```
+Docker Compose 可启动前端、API、Worker、MySQL、Redis、Kafka 和 Qdrant。按 [部署说明](docs/local-deployment.md) 配置 `.env` 中的数据库、认证和模型参数后，在仓库根目录执行：
 
-编辑 `.env`，填写不同的随机 `DB_PASSWORD`、`MYSQL_ROOT_PASSWORD`，以及至少 32 个随机字节的 Base64 编码 `JWT_SECRET`。可在 PowerShell 7 中生成 JWT 密钥：
-
-```powershell
-[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-```
-
-默认关闭模型能力。体验完整检索问答前，需配置实际可用的模型地址、名称、密钥与向量维度，并设置 `EMBEDDING_ENABLED=true`、`BM25_ENABLED=true`、`CHAT_ENABLED=true`。模型预算默认启用，价格未知或预算不足会阻止调用；配置与排查见 [本地部署](docs/local-deployment.md) 和 [预算设计](docs/model-budget-design.md)。密钥只保存在本地 `.env`。
-
-```powershell
+```bash
 docker compose --profile app up -d --build --wait --wait-timeout 180
 ```
 
-- 应用入口：[http://127.0.0.1:8088](http://127.0.0.1:8088)
-- 接口文档：[Swagger UI](http://127.0.0.1:8088/swagger-ui/index.html)
-- 体验路径：注册并登录 → 创建知识库 → 上传资料 → 等待可检索 → 提问并核对引用。
+默认访问地址为 [http://127.0.0.1:8088](http://127.0.0.1:8088)，接口文档位于 `/swagger-ui/index.html`。
 
-停止服务可运行 `docker compose --profile app stop`，保留数据。当前 Compose 面向本机演示，宿主端口仅绑定回环地址。
-
-## 验证与边界
-
-- **检索评测**：20 篇文档、50 条人工构造问题；该样本中 Hybrid 的 Recall@5、MRR@5、nDCG@5 均为 1.00，重排没有进一步提升。结果不代表开放场景的普遍准确率，见 [真实评测与原始结果](docs/evaluation-v1.md)。
-- **问答引用**：10 条真实模型案例，8 条有引用回答、2 条证据不足拒答。引用校验不等同于人工事实正确率，见同一评测记录。
-- **并发边界**：已有真实模型低并发基线；协议替身压测在并发 5 / 10 时复现 SSE 会话写入锁竞争与 HTTP 503，尚不能宣称高并发稳定，见 [压测记录](docs/load-testing.md)。
-- **权限边界**：当前一个部署对应一家公司；用户组支持自助加入，不是部门准入审批。敏感资料应使用仅指定成员，尚未提供多租户隔离。
-
-开发验证命令（后端需要 JDK 25 与可用的 Docker，前端建议 Node 24）：
-
-```powershell
-.\mvnw.cmd test
-npm --prefix frontend ci
-npm --prefix frontend test
-npm --prefix frontend run build
-```
-
-## 文档导航
-
-| 想了解的内容 | 入口 |
+| 内容 | 入口 |
 | --- | --- |
-| 部署和使用 | [本地部署](docs/local-deployment.md)、[前端使用](frontend/README.md) |
-| 面试演示与项目讲解 | [项目交付材料](docs/project-delivery.md)、[实施设计](docs/design.md) |
-| 进度与变更 | [更新记录](CHANGELOG.md)、[实施进度](docs/roadmap.md) |
-| 评测与复现 | [检索评测集](evaluation/v1/README.md)、[真实验证](docs/live-validation.md)、[容器验收](docs/compose-validation.md) |
+| 部署与运行 | [本地部署](docs/local-deployment.md) |
+| 前端使用与开发 | [前端说明](frontend/README.md) |
+| 示例资料 | [人力行政](docs/examples/hr)、[产品研发](docs/examples/engineering)、[客户服务](docs/examples/service) |
+| 权限实现 | [用户组与知识库共享](docs/departments.md) |
+| 检索与问答设计 | [混合检索](docs/bm25-design.md)、[重排](docs/rerank-design.md)、[问答引用](docs/answer-design.md)、[会话管理](docs/conversation-design.md) |
+| 任务与索引管理 | [任务恢复](docs/task-recovery.md)、[外部索引对账](docs/external-reconciliation.md) |
+| 评测资料 | [检索评测集](evaluation/v1/README.md)、[评测记录](docs/evaluation-v1.md) |
 
-源码位于 `src/`，前端位于 `frontend/`，技术文档位于 `docs/`，评测样本位于 `evaluation/`，演示与验证脚本位于 `scripts/`。
+```text
+KnowFlowAI/
+├── frontend/       前端页面与交互测试
+├── src/            后端服务、数据库迁移与集成测试
+├── docs/           技术文档、示例资料与界面截图
+├── evaluation/     检索评测数据集
+├── scripts/        演示、评测和运行验证脚本
+└── compose.yaml    容器编排配置
+```
